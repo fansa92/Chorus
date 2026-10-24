@@ -1,7 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Chorus.App.Services;
 using Chorus.App.Views;
 
@@ -19,7 +18,7 @@ public sealed partial class MainWindow : Window
         SetTitleBar(AppTitleBar);
         SystemBackdrop = new MicaBackdrop();
 
-        TrayIcon.IconSource = new BitmapImage(new Uri("ms-appx:///Assets/appicon.ico"));
+        TrayIcon.IconSource = new BitmapIconSource { UriSource = new Uri("ms-appx:///Assets/appicon.ico") };
 
         ContentFrame.Navigate(typeof(DashboardPage));
         NavView.SelectedItem = NavView.MenuItems[0];

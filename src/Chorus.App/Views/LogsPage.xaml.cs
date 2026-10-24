@@ -2,6 +2,7 @@ using System.Collections.Specialized;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Chorus.App.Services;
+using Chorus.App.ViewModels;
 
 namespace Chorus.App.Views;
 

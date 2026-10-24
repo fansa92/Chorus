@@ -2,6 +2,7 @@ using System.Security.Cryptography;
 using Chorus.App.ViewModels;
 using Chorus.Core;
 using Chorus.Core.ClashApi;
+using Chorus.Core.Models;
 
 namespace Chorus.App.Services;
 
