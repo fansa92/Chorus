@@ -303,12 +303,42 @@ public partial class ProxyGroupViewModel : ObservableObject
 public partial class ProxyMemberViewModel : ObservableObject
 {
     private static readonly SolidColorBrush TransparentBrush = new(Windows.UI.Color.FromArgb(0, 0, 0, 0));
-    private static readonly SolidColorBrush SelectedBgBrush = new(Windows.UI.Color.FromArgb(0x1A, 0x3E, 0x8F, 0xE0));
+    private static readonly SolidColorBrush WhiteBrush = new(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF));
+    private static readonly SolidColorBrush SelectedBgBrush = new(Windows.UI.Color.FromArgb(0x26, 0x3E, 0x8F, 0xE0));
     private static readonly SolidColorBrush SelectedBorderBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3E, 0x8F, 0xE0));
     private static readonly SolidColorBrush AccentBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3E, 0x8F, 0xE0));
     private static readonly SolidColorBrush GreenBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3B, 0xA5, 0x5D));
     private static readonly SolidColorBrush OrangeBrush = new(Windows.UI.Color.FromArgb(0xFF, 0xD1, 0x8A, 0x2B));
     private static readonly SolidColorBrush RedBrush = new(Windows.UI.Color.FromArgb(0xFF, 0xD1, 0x34, 0x38));
+
+    // 未选中卡片沿用主题的卡片底色/描边（Bettbox CommonCard 的 outlineVariant 风格），
+    // 首次访问时从主题资源取，随深浅主题自动协调。
+    private static Brush? _idleCardBrush;
+    private static Brush? _idleBorderBrush;
+
+    private static Brush IdleCardBrush
+    {
+        get
+        {
+            if (_idleCardBrush is null
+                && Application.Current.Resources.ContainsKey("CardBackgroundFillColorDefaultBrush")
+                && Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] is Brush b)
+                _idleCardBrush = b;
+            return _idleCardBrush ?? TransparentBrush;
+        }
+    }
+
+    private static Brush IdleBorderBrush
+    {
+        get
+        {
+            if (_idleBorderBrush is null
+                && Application.Current.Resources.ContainsKey("CardStrokeColorDefaultBrush")
+                && Application.Current.Resources["CardStrokeColorDefaultBrush"] is Brush b)
+                _idleBorderBrush = b;
+            return _idleBorderBrush ?? TransparentBrush;
+        }
+    }
 
     public ProxyGroupViewModel Group { get; }
     public string Name { get; }
@@ -330,8 +360,9 @@ public partial class ProxyMemberViewModel : ObservableObject
 
     public Visibility SelectedVisibility => IsSelected ? Visibility.Visible : Visibility.Collapsed;
     public Brush CheckBrush => AccentBrush;
-    public Brush CardBackground => IsSelected ? SelectedBgBrush : TransparentBrush;
-    public Brush CardBorderBrush => IsSelected ? SelectedBorderBrush : TransparentBrush;
+    public Brush CardBackground => IsSelected ? SelectedBgBrush : IdleCardBrush;
+    public Brush CardBorderBrush => IsSelected ? SelectedBorderBrush : IdleBorderBrush;
+    public Thickness CardBorderThickness => new(IsSelected ? 1.5 : 1);
 
     public string DelayBadgeText => DelayMs switch
     {
@@ -360,6 +391,7 @@ public partial class ProxyMemberViewModel : ObservableObject
         OnPropertyChanged(nameof(SelectedVisibility));
         OnPropertyChanged(nameof(CardBackground));
         OnPropertyChanged(nameof(CardBorderBrush));
+        OnPropertyChanged(nameof(CardBorderThickness));
     }
 
     partial void OnDelayMsChanged(int? value)
