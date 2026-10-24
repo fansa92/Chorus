@@ -22,21 +22,70 @@
                 FontSize="14" />
         </Grid>
 
-        <NavigationView
-            Grid.Row="1"
-            x:Name="NavView"
-            SelectionChanged="NavView_SelectionChanged"
-            IsBackButtonVisible="Collapsed"
-            IsTitleBarAutoPaddingEnabled="False">
-            <NavigationView.MenuItems>
-                <NavigationViewItem Content="仪表盘" Tag="dashboard" Icon="Home" />
-                <NavigationViewItem Content="订阅" Tag="subscriptions" Icon="Link" />
-                <NavigationViewItem Content="策略组" Tag="proxies" Icon="Send" />
-                <NavigationViewItem Content="日志" Tag="logs" Icon="Document" />
-                <NavigationViewItem Content="设置" Tag="settings" Icon="Setting" />
-            </NavigationView.MenuItems>
-            <Frame x:Name="ContentFrame" />
-        </NavigationView>
+        <!-- 内容区：左侧导航栏 + 右侧页面（参考 Bettbox 桌面端排布） -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <Border
+                Width="196"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="0,0,1,0">
+                <Grid RowDefinitions="Auto,*">
+                    <StackPanel Orientation="Horizontal" Spacing="10" Padding="16,14,16,10">
+                        <Border Width="26" Height="26" CornerRadius="7"
+                                Background="{ThemeResource AccentFillColorDefaultBrush}">
+                            <TextBlock Text="C" Foreground="White" FontSize="14" FontWeight="SemiBold"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <TextBlock Text="Chorus" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                    </StackPanel>
+
+                    <ListView
+                        x:Name="NavList"
+                        Grid.Row="1"
+                        SelectionChanged="NavList_SelectionChanged"
+                        SelectionMode="Single"
+                        Padding="10,4,10,12">
+                        <ListViewItem Tag="dashboard" Padding="12,9">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                <SymbolIcon Symbol="Home" />
+                                <TextBlock Text="仪表盘" VerticalAlignment="Center" />
+                            </Grid>
+                        </ListViewItem>
+                        <ListViewItem Tag="proxies" Padding="12,9">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                <SymbolIcon Symbol="Send" />
+                                <TextBlock Text="策略组" VerticalAlignment="Center" />
+                            </Grid>
+                        </ListViewItem>
+                        <ListViewItem Tag="subscriptions" Padding="12,9">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                <SymbolIcon Symbol="Link" />
+                                <TextBlock Text="订阅" VerticalAlignment="Center" />
+                            </Grid>
+                        </ListViewItem>
+                        <ListViewItem Tag="logs" Padding="12,9">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                <SymbolIcon Symbol="Document" />
+                                <TextBlock Text="日志" VerticalAlignment="Center" />
+                            </Grid>
+                        </ListViewItem>
+                        <ListViewItem Tag="settings" Padding="12,9">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                <SymbolIcon Symbol="Setting" />
+                                <TextBlock Text="设置" VerticalAlignment="Center" />
+                            </Grid>
+                        </ListViewItem>
+                    </ListView>
+                </Grid>
+            </Border>
+
+            <Frame x:Name="ContentFrame" Grid.Column="1" />
+        </Grid>
 
         <tb:TaskbarIcon
             x:Name="TrayIcon"

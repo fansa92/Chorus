@@ -35,7 +35,7 @@ public sealed partial class MainWindow : Window
         }
 
         ContentFrame.Navigate(typeof(DashboardPage));
-        NavView.SelectedItem = NavView.MenuItems[0];
+        NavList.SelectedIndex = 0;
 
         AppWindow.Closing += (s, e) =>
         {
@@ -47,9 +47,9 @@ public sealed partial class MainWindow : Window
         };
     }
 
-    private void NavView_SelectionChanged(NavigationView sender, NavigationViewSelectionChangedEventArgs args)
+    private void NavList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (args.SelectedItem is not NavigationViewItem item || item.Tag is not string tag) return;
+        if (NavList.SelectedItem is not ListViewItem item || item.Tag is not string tag) return;
         var pageType = tag switch
         {
             "subscriptions" => typeof(SubscriptionsPage),

@@ -52,6 +52,57 @@ public sealed class ClashApiClient
         }
     }
 
+    /// <summary>读取当前出站模式（rule / global / direct，大小写不敏感）。</summary>
+    public async Task<string?> GetModeAsync(CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Get, "/configs");
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        if (JsonNode.Parse(json) is JsonObject obj && obj["mode"] is JsonValue mode && mode.TryGetValue<string>(out var m))
+            return m.ToLowerInvariant();
+        return null;
+    }
+
+    /// <summary>切换出站模式：rule（规则）/ global（全局代理）/ direct（全局直连）。</summary>
+    public async Task SetModeAsync(string mode, CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Patch, "/configs");
+        req.Content = new StringContent(
+            JsonSerializer.Serialize(new Dictionary<string, string> { ["mode"] = mode }),
+            Encoding.UTF8,
+            "application/json");
+        using var resp = await _http.SendAsync(req, ct);
+        if (!resp.IsSuccessStatusCode)
+        {
+            var body = await resp.Content.ReadAsStringAsync(ct);
+            throw new InvalidOperationException($"切换模式失败（{(int)resp.StatusCode}）：{body.Trim()}");
+        }
+    }
+
+    /// <summary>连接摘要：活动连接数 + 累计上传/下载字节。</summary>
+    public async Task<(int Count, long Up, long Down)> GetConnectionsSummaryAsync(CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Get, "/connections");
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        if (JsonNode.Parse(json) is JsonObject obj)
+        {
+            var count = obj["connections"] is JsonArray conns ? conns.Count : 0;
+            return (count, GetLong(obj, "uploadTotal"), GetLong(obj, "downloadTotal"));
+        }
+        return (0, 0, 0);
+    }
+
+    /// <summary>断开全部活动连接。</summary>
+    public async Task CloseConnectionsAsync(CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Delete, "/connections");
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+    }
+
     public async Task<int?> GetDelayAsync(string name, CancellationToken ct = default)
     {
         var path = "/proxies/" + Uri.EscapeDataString(name) +

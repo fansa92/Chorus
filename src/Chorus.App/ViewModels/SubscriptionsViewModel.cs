@@ -233,6 +233,9 @@ public partial class SubscriptionItemViewModel : ObservableObject
     public string Name => Entry.Name;
     public string Url => Entry.Url;
 
+    /// <summary>订阅名首字符，用作卡片图标。</summary>
+    public string IconLetter => Name.Length == 0 ? "?" : Name[..1];
+
     public string StatusText
     {
         get

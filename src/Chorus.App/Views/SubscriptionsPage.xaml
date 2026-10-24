@@ -3,13 +3,13 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup/2006"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:Chorus.App.ViewModels"
     x:DefaultBindMode="OneWay">
 
     <ScrollViewer>
         <StackPanel
-            MaxWidth="760"
+            MaxWidth="860"
             HorizontalAlignment="Left"
             Spacing="12"
             Padding="24,16,24,24">
@@ -40,20 +40,42 @@
             </TextBlock>
 
             <ListView ItemsSource="{x:Bind Vm.Items}" SelectionMode="None">
+                <ListView.ItemContainerStyle>
+                    <Style TargetType="ListViewItem">
+                        <Setter Property="Padding" Value="0" />
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    </Style>
+                </ListView.ItemContainerStyle>
                 <ListView.ItemTemplate>
                     <DataTemplate x:DataType="vm:SubscriptionItemViewModel">
-                        <Grid Padding="0,10,0,10" ColumnDefinitions="*,Auto">
-                            <StackPanel Grid.Column="0" Spacing="2">
-                                <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" />
-                                <TextBlock Text="{x:Bind Url}" Opacity="0.65" TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{x:Bind DisplayStatus}" Opacity="0.65" />
-                            </StackPanel>
-                            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                <Button Content="更新" Click="UpdateItem_Click" />
-                                <Button Content="编辑" Click="EditItem_Click" />
-                                <Button Content="删除" Click="RemoveItem_Click" />
-                            </StackPanel>
-                        </Grid>
+                        <Border
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                            BorderThickness="1"
+                            CornerRadius="8"
+                            Padding="14,12"
+                            Margin="0,0,0,10">
+                            <Grid ColumnDefinitions="Auto,*,Auto">
+                                <Border
+                                    Width="36" Height="36" CornerRadius="9"
+                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                    <TextBlock Text="{x:Bind IconLetter}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               FontSize="16" />
+                                </Border>
+                                <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center" Spacing="2">
+                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" />
+                                    <TextBlock Text="{x:Bind Url}" Opacity="0.65" FontSize="12"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="{x:Bind DisplayStatus}" Opacity="0.65" FontSize="12" />
+                                </StackPanel>
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <Button Content="更新" Click="UpdateItem_Click" />
+                                    <Button Content="编辑" Click="EditItem_Click" />
+                                    <Button Content="删除" Click="RemoveItem_Click" />
+                                </StackPanel>
+                            </Grid>
+                        </Border>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>

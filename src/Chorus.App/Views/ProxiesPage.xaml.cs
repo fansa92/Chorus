@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Navigation;
 using Chorus.App.Services;
 using Chorus.App.ViewModels;
@@ -38,12 +39,15 @@ public sealed partial class ProxiesPage : Page
             await Vm.TestGroupDelayAsync(group);
     }
 
-    private async void Member_Checked(object sender, RoutedEventArgs e)
+    private void ToggleGroup_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is RadioButton { DataContext: ProxyMemberViewModel member }
-            && member.Group.SelectedName != member.Name)
-        {
+        if ((sender as FrameworkElement)?.DataContext is ProxyGroupViewModel group)
+            group.IsExpanded = !group.IsExpanded;
+    }
+
+    private async void Member_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is ProxyMemberViewModel member)
             await Vm.SelectAsync(member.Group, member);
-        }
     }
 }

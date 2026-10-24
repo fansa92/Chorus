@@ -16,6 +16,18 @@ public class ConfigGeneratorTests
         Uuid = "uuid-1",
     };
 
+    private static NodeEntry RealityNode(string tag = "reality-1") => new()
+    {
+        Protocol = "vless",
+        Tag = tag,
+        Server = "1.2.3.4",
+        ServerPort = 443,
+        Uuid = "uuid-1",
+        Tls = true,
+        Sni = "www.microsoft.com",
+        RealityPublicKey = "a54YBM0vUYH0Z2BHBVOzMjtVjXbLYR_-0D5rGPRFBk",
+    };
+
     private static AppSettings Settings(params NodeEntry[] nodes) => new()
     {
         ClashApiSecret = "test-secret",
@@ -388,5 +400,52 @@ public class ConfigGeneratorTests
         var members = selector?["outbounds"]?.AsArray().Select(x => (string?)x).ToList()!;
         Assert.Contains("A", members);
         Assert.Contains("A #2", members);
+    }
+
+    [Fact]
+    public void ClashMode_Rules_Enable_Mode_Switching()
+    {
+        var config = ConfigGenerator.Build(Settings(VmessNode()));
+
+        var rules = config["route"]?["rules"]?.AsArray().OfType<JsonObject>().ToList();
+        Assert.NotNull(rules);
+        // Direct / Global 两条 clash_mode 规则必须存在且位于最前面（模式不匹配时整条跳过，
+        // 匹配时先于 final 生效），否则 Clash API 的 mode-list 只有 Rule，模式切换无效
+        Assert.Contains(rules!, r => r["clash_mode"]?.GetValue<string>() == "Direct"
+            && r["outbound"]?.GetValue<string>() == "direct");
+        Assert.Contains(rules!, r => r["clash_mode"]?.GetValue<string>() == "Global"
+            && r["outbound"]?.GetValue<string>() == ConfigGenerator.SelectGroupTag);
+    }
+
+    [Fact]
+    public void CacheFile_Enabled_For_Selection_Persistence()
+    {
+        var config = ConfigGenerator.Build(Settings(VmessNode()));
+
+        Assert.True(config["experimental"]?["cache_file"]?["enabled"]?.GetValue<bool>());
+    }
+
+    [Fact]
+    public void Reality_Node_Always_Gets_Utls()
+    {
+        // sing-box 1.11+：reality 客户端缺失 uTLS 会在启动时 FATAL，与源配置是否带指纹无关
+        var config = ConfigGenerator.Build(Settings(RealityNode()));
+
+        var outbound = FindOutbound(config, "reality-1");
+        var tls = outbound?["tls"]?.AsObject();
+        Assert.True(tls?["utls"]?["enabled"]?.GetValue<bool>());
+        Assert.Equal("chrome", tls?["utls"]?["fingerprint"]?.GetValue<string>());
+        Assert.True(tls?["reality"]?["enabled"]?.GetValue<bool>());
+    }
+
+    [Fact]
+    public void Reality_Node_Keeps_Source_Fingerprint()
+    {
+        var node = RealityNode();
+        node.Fingerprint = "firefox";
+        var config = ConfigGenerator.Build(Settings(node));
+
+        var outbound = FindOutbound(config, "reality-1");
+        Assert.Equal("firefox", outbound?["tls"]?["utls"]?["fingerprint"]?.GetValue<string>());
     }
 }

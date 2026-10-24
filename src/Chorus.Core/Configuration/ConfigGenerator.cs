@@ -123,6 +123,14 @@ public static partial class ConfigGenerator
                 // sing-box 1.12+ 要求：出站 dial 字段必须指定域名解析器（1.14 起缺失即 FATAL）
                 ["default_domain_resolver"] = "dns-direct",
                 ["final"] = SelectGroupTag,
+                // 模式切换规则：clash_mode 与当前 Clash 模式不匹配时整条跳过。
+                // 这两条规则同时会让 Clash API 的 mode-list 出现 Global / Direct，仪表盘的
+                // 出站模式切换（PATCH /configs {"mode": ...}）才真正生效。
+                ["rules"] = new JsonArray
+                {
+                    new JsonObject { ["clash_mode"] = "Direct", ["action"] = "route", ["outbound"] = "direct" },
+                    new JsonObject { ["clash_mode"] = "Global", ["action"] = "route", ["outbound"] = SelectGroupTag },
+                },
             },
             ["experimental"] = new JsonObject
             {
@@ -276,15 +284,26 @@ public static partial class ConfigGenerator
                 .Select(s => JsonValue.Create(s)).ToArray();
             if (alpn.Length > 0) tls["alpn"] = new JsonArray(alpn);
         }
-        if (!string.IsNullOrWhiteSpace(n.Fingerprint))
-            tls["utls"] = new JsonObject { ["enabled"] = true, ["fingerprint"] = n.Fingerprint };
         if (!string.IsNullOrWhiteSpace(n.RealityPublicKey))
+        {
+            // sing-box 1.11+ 要求 reality 客户端必须启用 uTLS，缺失即 FATAL；
+            // 源配置未指定指纹时默认用 chrome
+            tls["utls"] = new JsonObject
+            {
+                ["enabled"] = true,
+                ["fingerprint"] = string.IsNullOrWhiteSpace(n.Fingerprint) ? "chrome" : n.Fingerprint,
+            };
             tls["reality"] = new JsonObject
             {
                 ["enabled"] = true,
                 ["public_key"] = n.RealityPublicKey,
                 ["short_id"] = n.RealityShortId ?? "",
             };
+        }
+        else if (!string.IsNullOrWhiteSpace(n.Fingerprint))
+        {
+            tls["utls"] = new JsonObject { ["enabled"] = true, ["fingerprint"] = n.Fingerprint };
+        }
         o["tls"] = tls;
     }
 

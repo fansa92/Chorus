@@ -5,9 +5,10 @@ namespace Chorus.Core;
 /// <summary>从订阅地址下载内容并解析为节点列表。</summary>
 public sealed class SubscriptionService
 {
-    private static readonly HttpClient Http = new()
+    // 与 ClashApiClient 一致：不走系统/环境代理，避免本机代理配置导致订阅拉取失败
+    private static readonly HttpClient Http = new(new HttpClientHandler { UseProxy = false })
     {
-        Timeout = TimeSpan.FromSeconds(20),
+        Timeout = TimeSpan.FromSeconds(30),
     };
 
     public async Task<string> FetchAsync(string url, CancellationToken ct = default)
