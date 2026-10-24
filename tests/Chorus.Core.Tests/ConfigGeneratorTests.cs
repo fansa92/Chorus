@@ -121,6 +121,30 @@ public class ConfigGeneratorTests
     }
 
     [Fact]
+    public void Dns_Uses_New_Server_Format_And_DefaultDomainResolver()
+    {
+        var config = ConfigGenerator.Build(Settings(VmessNode()));
+
+        var servers = config["dns"]?["servers"]?.AsArray().OfType<JsonObject>().ToList();
+        Assert.NotNull(servers);
+        Assert.Equal(2, servers!.Count);
+
+        var proxy = servers.First(s => s["tag"]?.GetValue<string>() == "dns-proxy");
+        Assert.Equal("https", proxy["type"]?.GetValue<string>());
+        Assert.Equal("8.8.8.8", proxy["server"]?.GetValue<string>());
+        Assert.Null(proxy["address"]); // 旧格式（1.14 已移除）不得出现
+
+        var direct = servers.First(s => s["tag"]?.GetValue<string>() == "dns-direct");
+        Assert.Equal("local", direct["type"]?.GetValue<string>());
+
+        // independent_cache 已在 1.14 弃用
+        Assert.Null(config["dns"]?["independent_cache"]);
+
+        // 1.14 要求 route.default_domain_resolver，否则启动 FATAL
+        Assert.Equal("dns-direct", config["route"]?["default_domain_resolver"]?.GetValue<string>());
+    }
+
+    [Fact]
     public void VmessNode_Maps_CoreFields()
     {
         var config = ConfigGenerator.Build(Settings(VmessNode()));

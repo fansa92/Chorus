@@ -82,19 +82,21 @@ public static partial class ConfigGenerator
             },
             ["dns"] = new JsonObject
             {
+                // sing-box 1.12+ 新 DNS 服务器格式（type + server）；1.14 已移除旧 address 写法
                 ["servers"] = new JsonArray
                 {
-                    new JsonObject { ["tag"] = "dns-proxy", ["address"] = "https://8.8.8.8/dns-query", ["detour"] = SelectGroupTag },
-                    new JsonObject { ["tag"] = "dns-direct", ["address"] = "local", ["detour"] = "direct" },
+                    new JsonObject { ["type"] = "https", ["tag"] = "dns-proxy", ["server"] = "8.8.8.8", ["detour"] = SelectGroupTag },
+                    new JsonObject { ["type"] = "local", ["tag"] = "dns-direct", ["detour"] = "direct" },
                 },
                 ["final"] = "dns-proxy",
-                ["independent_cache"] = true,
             },
             ["inbounds"] = inbounds,
             ["outbounds"] = outbounds,
             ["route"] = new JsonObject
             {
                 ["auto_detect_interface"] = true,
+                // sing-box 1.12+ 要求：出站 dial 字段必须指定域名解析器（1.14 起缺失即 FATAL）
+                ["default_domain_resolver"] = "dns-direct",
                 ["final"] = SelectGroupTag,
             },
             ["experimental"] = new JsonObject
