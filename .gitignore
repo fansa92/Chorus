@@ -11,3 +11,4 @@ BundleArtifacts/
 *.appx
 *.msix
 *.pdb
+dist/
