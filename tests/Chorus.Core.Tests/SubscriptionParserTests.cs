@@ -110,6 +110,51 @@ public class SubscriptionParserTests
     }
 
     [Fact]
+    public void SingBox_Json_Extracts_Selector_And_UrlTest_Groups()
+    {
+        // sing-box JSON 订阅里的策略组需提取出来，供策略组页展示
+        const string content = """
+            {
+              "outbounds": [
+                { "type": "vless", "tag": "s1", "server": "a.com", "server_port": 443, "uuid": "u1" },
+                { "type": "vless", "tag": "s2", "server": "b.com", "server_port": 443, "uuid": "u2" },
+                { "type": "direct", "tag": "direct" },
+                {
+                  "type": "selector",
+                  "tag": "🐸 手动切换",
+                  "default": "s2",
+                  "outbounds": ["s1", "s2", "direct"]
+                },
+                {
+                  "type": "urltest",
+                  "tag": "🦈 自动选择",
+                  "url": "https://www.gstatic.com/generate_204",
+                  "interval": "300s",
+                  "outbounds": ["s1", "s2"]
+                }
+              ]
+            }
+            """;
+
+        var (nodes, groups, errors) = SubscriptionParser.ParseWithGroups(content);
+
+        Assert.Empty(errors);
+        Assert.Equal(2, nodes.Count);
+        Assert.Equal(2, groups.Count);
+
+        var selector = groups.Single(g => g.Type == "selector");
+        Assert.Equal("🐸 手动切换", selector.Name);
+        Assert.Equal(["s1", "s2", "direct"], selector.Members);
+        Assert.Equal("s2", selector.Default);
+
+        var auto = groups.Single(g => g.Type == "urltest");
+        Assert.Equal("🦈 自动选择", auto.Name);
+        Assert.Equal(["s1", "s2"], auto.Members);
+        Assert.Equal("https://www.gstatic.com/generate_204", auto.Url);
+        Assert.Equal("300s", auto.Interval);
+    }
+
+    [Fact]
     public void Empty_Content_Returns_Error()
     {
         var (nodes, errors) = SubscriptionParser.Parse("   \n  ");

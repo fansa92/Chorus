@@ -190,6 +190,100 @@ public class ConfigGeneratorTests
     }
 
     [Fact]
+    public void Subscription_Groups_Are_Generated_As_Outbounds()
+    {
+        var settings = Settings(VmessNode("香港 01"), VmessNode("香港 02"));
+        settings.Subscriptions.Add(new SubscriptionEntry
+        {
+            Name = "机场A",
+            Url = "https://example.com/sub",
+            Nodes = [],
+            Groups =
+            [
+                new ProxyGroup
+                {
+                    Name = "🐸 手动切换",
+                    Type = "selector",
+                    Members = ["香港 01", "direct", "不存在的出口"],
+                    Default = "香港 01",
+                },
+                new ProxyGroup
+                {
+                    Name = "🦈 自动选择",
+                    Type = "urltest",
+                    Members = ["*"],
+                    Url = "https://www.gstatic.com/generate_204",
+                    Interval = "300s",
+                },
+            ],
+        });
+
+        var config = ConfigGenerator.Build(settings);
+
+        var manual = FindOutbound(config, "🐸 手动切换");
+        Assert.Equal("selector", manual?["type"]?.GetValue<string>());
+        Assert.Equal("香港 01", manual?["default"]?.GetValue<string>());
+        var manualMembers = manual?["outbounds"]?.AsArray().Select(x => (string?)x).ToList();
+        Assert.Contains("香港 01", manualMembers);
+        Assert.Contains("direct", manualMembers); // 内置出站可被引用
+        Assert.DoesNotContain("不存在的出口", manualMembers); // 无效成员被剔除
+
+        var auto = FindOutbound(config, "🦈 自动选择");
+        Assert.Equal("urltest", auto?["type"]?.GetValue<string>());
+        Assert.Equal("300s", auto?["interval"]?.GetValue<string>()); // 采用订阅的间隔
+        Assert.Equal("https://www.gstatic.com/generate_204", auto?["url"]?.GetValue<string>());
+
+        // direct/block 常驻，供订阅组引用
+        Assert.NotNull(FindOutbound(config, "direct"));
+        Assert.NotNull(FindOutbound(config, "block"));
+
+        // 订阅组名与内置组不冲突，内置自动组照常生成
+        Assert.NotNull(FindOutbound(config, ConfigGenerator.AutoGroupTag));
+        // 内置总选择组包含订阅组
+        var selector = FindOutbound(config, ConfigGenerator.SelectGroupTag);
+        Assert.Contains("🐸 手动切换", selector?["outbounds"]?.AsArray().Select(x => (string?)x));
+    }
+
+    [Fact]
+    public void Subscription_Group_With_Reserved_Name_Replaces_Builtin()
+    {
+        var settings = Settings(VmessNode("香港 01"));
+        settings.Subscriptions.Add(new SubscriptionEntry
+        {
+            Name = "机场A",
+            Url = "https://example.com/sub",
+            Nodes = [],
+            Groups = [new ProxyGroup { Name = ConfigGenerator.AutoGroupTag, Type = "urltest", Members = ["*"] }],
+        });
+
+        var config = ConfigGenerator.Build(settings);
+
+        // 采用订阅的同名组，而不是重复生成内置组导致冲突
+        var autoCount = config["outbounds"]?.AsArray().OfType<JsonObject>()
+            .Count(o => o["tag"]?.GetValue<string>() == ConfigGenerator.AutoGroupTag);
+        Assert.Equal(1, autoCount);
+    }
+
+    [Fact]
+    public void Subscription_Group_With_No_Valid_Member_Is_Skipped()
+    {
+        var settings = Settings(VmessNode("香港 01"));
+        settings.Subscriptions.Add(new SubscriptionEntry
+        {
+            Name = "机场A",
+            Url = "https://example.com/sub",
+            Nodes = [],
+            // 成员全部无效（引用不存在的出口），跳过而不是让整个配置失败
+            Groups = [new ProxyGroup { Name = "失效组", Members = ["不存在的出口"] }],
+        });
+
+        var config = ConfigGenerator.Build(settings);
+
+        Assert.Null(FindOutbound(config, "失效组"));
+        Assert.NotNull(FindOutbound(config, ConfigGenerator.SelectGroupTag));
+    }
+
+    [Fact]
     public void VmessNode_Maps_CoreFields()
     {
         var config = ConfigGenerator.Build(Settings(VmessNode()));

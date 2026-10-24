@@ -8,18 +8,26 @@ public static class SubscriptionParser
 {
     public static (List<NodeEntry> Nodes, List<string> Errors) Parse(string content)
     {
+        var (nodes, _, errors) = ParseWithGroups(content);
+        return (nodes, errors);
+    }
+
+    /// <summary>解析订阅内容，同时提取 sing-box JSON 订阅里的策略组（selector/urltest）。</summary>
+    public static (List<NodeEntry> Nodes, List<ProxyGroup> Groups, List<string> Errors) ParseWithGroups(string content)
+    {
         var nodes = new List<NodeEntry>();
+        var groups = new List<ProxyGroup>();
         var errors = new List<string>();
 
         content = content?.Trim() ?? "";
         if (content.Length == 0)
         {
             errors.Add("订阅内容为空");
-            return (nodes, errors);
+            return (nodes, groups, errors);
         }
 
         if (content.StartsWith('{') || content.StartsWith('['))
-            return ParseSingBoxJson(content);
+            return ParseSingBoxJsonWithGroups(content);
 
         var lines = SplitLines(content);
         if (!lines.Any(IsShareLink))
@@ -28,7 +36,7 @@ public static class SubscriptionParser
             catch
             {
                 errors.Add("内容既不是分享链接，也不是有效的 Base64");
-                return (nodes, errors);
+                return (nodes, groups, errors);
             }
         }
 
@@ -45,12 +53,20 @@ public static class SubscriptionParser
             else if (error is not null)
                 errors.Add(error);
         }
-        return (nodes, errors);
+        return (nodes, groups, errors);
     }
 
     public static (List<NodeEntry> Nodes, List<string> Errors) ParseSingBoxJson(string content)
     {
+        var (nodes, _, errors) = ParseSingBoxJsonWithGroups(content);
+        return (nodes, errors);
+    }
+
+    /// <summary>解析 sing-box JSON 订阅：提取节点与策略组。功能性出站（direct/block/dns）忽略。</summary>
+    public static (List<NodeEntry> Nodes, List<ProxyGroup> Groups, List<string> Errors) ParseSingBoxJsonWithGroups(string content)
+    {
         var nodes = new List<NodeEntry>();
+        var groups = new List<ProxyGroup>();
         var errors = new List<string>();
         try
         {
@@ -64,14 +80,20 @@ public static class SubscriptionParser
             if (outbounds is null)
             {
                 errors.Add("JSON 中没有 outbounds 数组");
-                return (nodes, errors);
+                return (nodes, groups, errors);
             }
             foreach (var item in outbounds)
             {
                 if (item is not JsonObject outbound) continue;
                 var type = GetString(outbound, "type")?.ToLowerInvariant();
-                // 功能性出站（组/直连/拦截/DNS）直接忽略
-                if (type is "direct" or "block" or "dns" or "selector" or "urltest") continue;
+                // 功能性出站（直连/拦截/DNS）忽略；selector/urltest 提取为策略组
+                if (type is "direct" or "block" or "dns") continue;
+                if (type is "selector" or "urltest")
+                {
+                    if (FromGroup(outbound, type) is { } group)
+                        groups.Add(group);
+                    continue;
+                }
                 if (!IsSupportedProxyType(type))
                 {
                     errors.Add($"不支持的出站类型：{type ?? "?"}（{GetString(outbound, "tag") ?? "未命名"}，已跳过）");
@@ -84,7 +106,26 @@ public static class SubscriptionParser
         {
             errors.Add("解析 sing-box JSON 失败：" + ex.Message);
         }
-        return (nodes, errors);
+        return (nodes, groups, errors);
+    }
+
+    /// <summary>从 selector/urltest 出站提取策略组。成员列表原样保留，由 ConfigGenerator 负责解析引用。</summary>
+    private static ProxyGroup? FromGroup(JsonObject o, string type)
+    {
+        var name = GetString(o, "tag");
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        var members = new List<string>();
+        if (o["outbounds"] is JsonArray list)
+            members.AddRange(list.Select(x => x?.GetValue<string>()).Where(s => !string.IsNullOrEmpty(s))!);
+        return new ProxyGroup
+        {
+            Name = name,
+            Type = type,
+            Members = members,
+            Default = GetString(o, "default"),
+            Url = GetString(o, "url"),
+            Interval = GetString(o, "interval"),
+        };
     }
 
     private static NodeEntry? FromOutbound(JsonObject o)

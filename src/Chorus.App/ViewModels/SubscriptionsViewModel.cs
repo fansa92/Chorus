@@ -84,6 +84,48 @@ public partial class SubscriptionsViewModel : ObservableObject
         }
     }
 
+    /// <summary>弹窗面板保存后修改订阅（名称/链接），并立即重新拉取。</summary>
+    public async Task EditAsync(SubscriptionItemViewModel item, string name, string url)
+    {
+        if (IsBusy) return;
+        url = url.Trim();
+        if (!url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            && !url.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            Show("错误", "订阅链接必须以 http:// 或 https:// 开头", InfoBarSeverity.Error);
+            return;
+        }
+        if (AppServices.Settings.Subscriptions.Any(s =>
+                !ReferenceEquals(s, item.Entry)
+                && string.Equals(s.Url, url, StringComparison.OrdinalIgnoreCase)))
+        {
+            Show("错误", "该订阅链接已存在", InfoBarSeverity.Error);
+            return;
+        }
+
+        var trimmed = name.Trim();
+        item.Entry.Name = trimmed.Length > 0 ? trimmed : SubscriptionEntryConverter.DefaultName(url);
+        item.Entry.Url = url;
+        Reload();
+
+        IsBusy = true;
+        try
+        {
+            var (ok, message) = await UpdateEntryAsync(item.Entry);
+            AppServices.Store.Save(AppServices.Settings);
+            Show(
+                ok ? "保存成功" : "保存成功但更新失败",
+                ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点。{RestartHint()}"
+                   : $"「{item.Entry.Name}」已保存，但更新失败：{message}",
+                ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+        }
+        finally
+        {
+            IsBusy = false;
+            Reload();
+        }
+    }
+
     public async Task UpdateAsync(SubscriptionItemViewModel item)
     {
         if (IsBusy) return;
@@ -155,8 +197,9 @@ public partial class SubscriptionsViewModel : ObservableObject
     {
         try
         {
-            var (nodes, errors) = await AppServices.Subscriptions.ImportFromUrlAsync(entry.Url);
+            var (nodes, groups, errors) = await AppServices.Subscriptions.ImportFromUrlWithGroupsAsync(entry.Url);
             entry.Nodes = nodes;
+            entry.Groups = groups;
             entry.LastUpdated = DateTimeOffset.Now;
             entry.LastError = errors.Count > 0 ? errors[0] : null;
             return (true, "");

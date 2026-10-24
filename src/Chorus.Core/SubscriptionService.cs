@@ -25,4 +25,12 @@ public sealed class SubscriptionService
         var content = await FetchAsync(url, ct);
         return Parsing.SubscriptionParser.Parse(content);
     }
+
+    /// <summary>同 <see cref="ImportFromUrlAsync"/>，但保留 sing-box JSON 订阅里的策略组。</summary>
+    public async Task<(List<NodeEntry> Nodes, List<ProxyGroup> Groups, List<string> Errors)> ImportFromUrlWithGroupsAsync(
+        string url, CancellationToken ct = default)
+    {
+        var content = await FetchAsync(url, ct);
+        return Parsing.SubscriptionParser.ParseWithGroups(content);
+    }
 }

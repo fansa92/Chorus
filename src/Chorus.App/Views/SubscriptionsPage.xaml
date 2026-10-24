@@ -3,9 +3,8 @@
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
-    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    xmlns:mc="http://schemas.openxmlformats.org/markup/2006"
     xmlns:vm="using:Chorus.App.ViewModels"
-    mc:Ignorable="d"
     x:DefaultBindMode="OneWay">
 
     <ScrollViewer>
@@ -15,7 +14,13 @@
             Spacing="12"
             Padding="24,16,24,24">
 
-            <TextBlock Text="订阅管理" Style="{StaticResource TitleTextBlockStyle}" />
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="订阅管理" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+                    <Button Content="添加订阅" Click="Add_Click" Style="{StaticResource AccentButtonStyle}" />
+                    <Button Content="全部更新" Click="UpdateAll_Click" />
+                </StackPanel>
+            </Grid>
 
             <InfoBar
                 IsOpen="{x:Bind Vm.HasMessage}"
@@ -24,17 +29,6 @@
                 Severity="{x:Bind Vm.MessageSeverity}"
                 IsClosable="False" />
 
-            <TextBlock Text="添加订阅" Style="{StaticResource SubtitleTextBlockStyle}" />
-            <TextBox Header="名称（可选）" Text="{x:Bind Vm.NewName, Mode=TwoWay}"
-                     PlaceholderText="例如：机场A（留空则自动取名）" />
-            <TextBox Header="订阅链接" Text="{x:Bind Vm.NewUrl, Mode=TwoWay}"
-                     PlaceholderText="https://example.com/sub" />
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="添加并更新" Click="Add_Click" Style="{StaticResource AccentButtonStyle}" />
-                <Button Content="全部更新" Click="UpdateAll_Click" />
-            </StackPanel>
-
-            <TextBlock Text="已添加的订阅" Style="{StaticResource SubtitleTextBlockStyle}" />
             <TextBlock Opacity="0.7" TextWrapping="Wrap">
                 <Run Text="当前共" />
                 <Run Text="{x:Bind Vm.TotalNodeCount, Mode=OneWay}" FontWeight="SemiBold" />
@@ -56,6 +50,7 @@
                             </StackPanel>
                             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
                                 <Button Content="更新" Click="UpdateItem_Click" />
+                                <Button Content="编辑" Click="EditItem_Click" />
                                 <Button Content="删除" Click="RemoveItem_Click" />
                             </StackPanel>
                         </Grid>
@@ -63,7 +58,7 @@
                 </ListView.ItemTemplate>
             </ListView>
 
-            <TextBlock Text="提示：修改订阅后如核心正在运行，重启核心后生效。" Opacity="0.7" TextWrapping="Wrap" />
+            <TextBlock Text="提示：点击「添加订阅」或「编辑」会在弹出面板中处理；修改订阅后如核心正在运行，重启核心后生效。" Opacity="0.7" TextWrapping="Wrap" />
         </StackPanel>
     </ScrollViewer>
 </Page>

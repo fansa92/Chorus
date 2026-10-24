@@ -34,6 +34,12 @@ public sealed class ProxyGroup
     /// <summary>"selector"（手动选择）或 "urltest"（自动测速）。</summary>
     public string Type { get; set; } = "selector";
     public List<string> Members { get; set; } = [];
+    /// <summary>selector 的默认选中项（订阅配置里的 default 字段）。</summary>
+    public string? Default { get; set; }
+    /// <summary>urltest 的测速地址（订阅配置里的 url 字段）。</summary>
+    public string? Url { get; set; }
+    /// <summary>urltest 的测速间隔（订阅配置里的 interval 字段，如 "3m"）。</summary>
+    public string? Interval { get; set; }
 }
 
 public sealed class Profile
@@ -43,12 +49,14 @@ public sealed class Profile
     public List<ProxyGroup> Groups { get; set; } = [];
 }
 
-/// <summary>一个订阅源：URL + 其解析出的节点 + 更新状态。多个订阅的节点与手动节点合并后生效。</summary>
+/// <summary>一个订阅源：URL + 其解析出的节点/策略组 + 更新状态。多个订阅的节点与手动节点合并后生效。</summary>
 public sealed class SubscriptionEntry
 {
     public string Name { get; set; } = "";
     public string Url { get; set; } = "";
     public List<NodeEntry> Nodes { get; set; } = [];
+    /// <summary>订阅配置里的策略组（selector/urltest），与节点一样随订阅更新。</summary>
+    public List<ProxyGroup> Groups { get; set; } = [];
     public DateTimeOffset? LastUpdated { get; set; }
     public string? LastError { get; set; }
 }
@@ -73,5 +81,18 @@ public sealed class AppSettings
         foreach (var sub in Subscriptions)
             all.AddRange(sub.Nodes);
         return all;
+    }
+
+    /// <summary>生效的策略组全集：手动组 + 所有订阅的组（按此顺序合并，同名去重保留第一个）。</summary>
+    public List<ProxyGroup> EffectiveGroups()
+    {
+        var all = new List<ProxyGroup>(Profile.Groups);
+        foreach (var sub in Subscriptions)
+            all.AddRange(sub.Groups);
+        return all
+            .Where(g => !string.IsNullOrWhiteSpace(g.Name))
+            .GroupBy(g => g.Name, StringComparer.Ordinal)
+            .Select(g => g.First())
+            .ToList();
     }
 }

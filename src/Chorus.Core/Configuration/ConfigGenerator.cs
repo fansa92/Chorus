@@ -16,40 +16,65 @@ public static partial class ConfigGenerator
         if (nodes.Count == 0)
             throw new InvalidOperationException("没有可用节点，请先在设置页导入订阅或手动添加节点。");
 
-        var userGroups = settings.Profile.Groups ?? [];
-        foreach (var group in userGroups)
+        // 策略组分两个来源：
+        // - 手动组（settings.json 手工编辑）：严格校验，空组/保留名直接报错；
+        // - 订阅组（外部配置导入）：容错处理——空组跳过、保留名冲突时采用订阅组。
+        var manualGroups = DedupeByName(settings.Profile.Groups ?? []);
+        foreach (var group in manualGroups)
             if (group.Name is AutoGroupTag or SelectGroupTag)
                 throw new InvalidOperationException($"策略组名称“{group.Name}”是保留名称，请修改。");
 
-        var groupNames = userGroups.Select(g => g.Name).ToList();
+        var manualNames = manualGroups.Select(g => g.Name).ToHashSet(StringComparer.Ordinal);
+        var subGroups = DedupeByName(
+            settings.Subscriptions.SelectMany(s => s.Groups ?? []));
+        // 与手动组同名的订阅组被手动组优先（EffectiveGroups 已去重，这里再按来源过滤一次）
+        var allGroups = new List<ProxyGroup>(manualGroups);
+        allGroups.AddRange(subGroups.Where(g => !manualNames.Contains(g.Name)));
+
+        var hasAutoGroup = allGroups.Any(g => g.Name == AutoGroupTag);
+        var hasSelectGroup = allGroups.Any(g => g.Name == SelectGroupTag);
+
+        var groupNames = allGroups.Select(g => g.Name).ToList();
         var nodeTags = nodes.Select(n => n.Tag).ToList();
-        // 组内可引用的名字：内置自动组 + 用户组（内置选择组会造成循环引用，排除）
+        // 组内可引用的名字：内置自动组 + 所有组名（内置选择组会造成循环引用，排除）
         var resolvableGroupNames = new List<string> { AutoGroupTag };
         resolvableGroupNames.AddRange(groupNames);
 
         var outbounds = new JsonArray();
 
-        foreach (var group in userGroups)
+        foreach (var group in allGroups)
         {
             var members = ResolveGroupMembers(group, resolvableGroupNames, nodeTags);
             if (members.Count == 0)
-                throw new InvalidOperationException($"策略组“{group.Name}”没有匹配到任何成员，请检查其 members 配置。");
+            {
+                // 订阅组的成员可能全部失效（引用了不支持的协议或已下线的出口），
+                // 跳过该组而不是让整个配置起不来
+                if (manualNames.Contains(group.Name))
+                    throw new InvalidOperationException($"策略组“{group.Name}”没有匹配到任何成员，请检查其 members 配置。");
+                continue;
+            }
             outbounds.Add(group.Type == "urltest"
-                ? BuildUrlTest(group.Name, members)
-                : BuildSelector(group.Name, members));
+                ? BuildUrlTest(group.Name, members, group)
+                : BuildSelector(group.Name, members, group));
         }
 
-        outbounds.Add(BuildUrlTest(AutoGroupTag, nodeTags));
+        // 订阅/手动配置没有定义内置同名组时，才生成内置的自动测速组和总选择组
+        if (!hasAutoGroup)
+            outbounds.Add(BuildUrlTest(AutoGroupTag, nodeTags, null));
 
-        var selectorMembers = new List<string> { AutoGroupTag };
-        selectorMembers.AddRange(groupNames);
-        selectorMembers.AddRange(nodeTags);
-        outbounds.Add(BuildSelector(SelectGroupTag, selectorMembers));
+        if (!hasSelectGroup)
+        {
+            var selectorMembers = new List<string> { AutoGroupTag };
+            selectorMembers.AddRange(groupNames);
+            selectorMembers.AddRange(nodeTags);
+            outbounds.Add(BuildSelector(SelectGroupTag, selectorMembers, null));
+        }
 
         foreach (var node in nodes)
             outbounds.Add(BuildOutbound(node));
 
         outbounds.Add(new JsonObject { ["type"] = "direct", ["tag"] = "direct" });
+        outbounds.Add(new JsonObject { ["type"] = "block", ["tag"] = "block" });
 
         var inbounds = new JsonArray
         {
@@ -112,7 +137,7 @@ public static partial class ConfigGenerator
         };
     }
 
-    /// <summary>展开策略组成员：支持精确节点名、精确组名、"*"（全部节点）与通配符（匹配节点名）。</summary>
+    /// <summary>展开策略组成员：支持精确节点名、精确组名、"*"（全部节点）、通配符（匹配节点名）与内置出站（direct/block）。</summary>
     public static List<string> ResolveGroupMembers(ProxyGroup group, IReadOnlyList<string> groupNames, IReadOnlyList<string> nodeTags)
     {
         var resolved = new List<string>();
@@ -123,6 +148,11 @@ public static partial class ConfigGenerator
             if (t == "*")
             {
                 resolved.AddRange(nodeTags);
+                continue;
+            }
+            if (t is "direct" or "block")
+            {
+                resolved.Add(t); // 内置出站，配置中始终存在
                 continue;
             }
             if (t != group.Name && groupNames.Contains(t, StringComparer.Ordinal))
@@ -143,6 +173,19 @@ public static partial class ConfigGenerator
             // 未匹配的 token 忽略
         }
         return resolved.Distinct().ToList();
+    }
+
+    /// <summary>按名称去重（保留第一个），用于合并多个来源的策略组。</summary>
+    internal static List<ProxyGroup> DedupeByName(IEnumerable<ProxyGroup> groups)
+    {
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<ProxyGroup>();
+        foreach (var group in groups)
+        {
+            if (string.IsNullOrWhiteSpace(group.Name) || !used.Add(group.Name)) continue;
+            result.Add(group);
+        }
+        return result;
     }
 
     internal static List<NodeEntry> DedupeTags(IEnumerable<NodeEntry> nodes)
@@ -281,23 +324,44 @@ public static partial class ConfigGenerator
         return http;
     }
 
-    private static JsonObject BuildSelector(string tag, IReadOnlyList<string> members) => new()
+    private static JsonObject BuildSelector(string tag, IReadOnlyList<string> members, ProxyGroup? group)
     {
-        ["type"] = "selector",
-        ["tag"] = tag,
-        ["outbounds"] = ToJsonArray(members),
-        ["interrupt_exist_connections"] = false,
-    };
+        var selector = new JsonObject
+        {
+            ["type"] = "selector",
+            ["tag"] = tag,
+            ["outbounds"] = ToJsonArray(members),
+            ["interrupt_exist_connections"] = false,
+        };
+        // 订阅配置里的默认选中项（仅当引用的是有效成员时才采用）
+        if (group?.Default is { Length: > 0 } def && members.Contains(def, StringComparer.Ordinal))
+            selector["default"] = def;
+        return selector;
+    }
 
-    private static JsonObject BuildUrlTest(string tag, IReadOnlyList<string> members) => new()
+    private static JsonObject BuildUrlTest(string tag, IReadOnlyList<string> members, ProxyGroup? group)
     {
-        ["type"] = "urltest",
-        ["tag"] = tag,
-        ["outbounds"] = ToJsonArray(members),
-        ["url"] = "https://www.gstatic.com/generate_204",
-        ["interval"] = "3m",
-        ["tolerance"] = 50,
-    };
+        // 订阅配置里的测速地址/间隔需通过校验，否则回退默认值（避免非法值让整个配置起不来）
+        var url = group?.Url is { Length: > 0 } u
+            && (u.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+                || u.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+            ? u : "https://www.gstatic.com/generate_204";
+        var interval = group?.Interval is { Length: > 0 } iv && GoDurationRegex().IsMatch(iv)
+            ? iv : "3m";
+        return new JsonObject
+        {
+            ["type"] = "urltest",
+            ["tag"] = tag,
+            ["outbounds"] = ToJsonArray(members),
+            ["url"] = url,
+            ["interval"] = interval,
+            ["tolerance"] = 50,
+        };
+    }
+
+    /// <summary>Go 时长格式（如 3m / 1h30m / 500ms），用于校验订阅里的 interval。</summary>
+    [GeneratedRegex(@"^(\d+(\.\d+)?(ns|us|µs|ms|s|m|h))+$")]
+    private static partial Regex GoDurationRegex();
 
     internal static JsonArray ToJsonArray(IReadOnlyList<string> items) =>
         new(items.Select(s => JsonValue.Create(s)).ToArray());

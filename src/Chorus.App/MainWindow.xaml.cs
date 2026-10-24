@@ -70,16 +70,34 @@ public sealed partial class MainWindow : Window
 
     private async void ExitApp_Click(object sender, RoutedEventArgs e)
     {
+        if (_exiting) return;
         _exiting = true;
         try
         {
-            await AppServices.Runner.StopAsync();
+            // 停止核心可能卡住（如核心无响应），加超时兜底，避免退出流程被挂起
+            await AppServices.Runner.StopAsync().WaitAsync(TimeSpan.FromSeconds(5));
         }
         catch
         {
             // 退出时的清理失败不阻止退出
         }
-        TrayIcon.Dispose();
+        try { AppServices.Core.Stop(); }
+        catch
+        {
+            // 核心可能已退出
+        }
+        try { TrayIcon.Dispose(); }
+        catch
+        {
+            // 托盘图标释放失败不影响退出
+        }
+        try { Close(); }
+        catch
+        {
+            // 窗口可能已关闭
+        }
         Application.Current.Exit();
+        // 兜底：确保进程真正退出（WinUI 的 Exit() 只是请求关闭，遇到挂起的后台任务时可能不终止）
+        Environment.Exit(0);
     }
 }

@@ -34,17 +34,19 @@ internal static class JobObjectInterop
 
     public static void CloseJob(IntPtr job) => NativeCloseHandle(job);
 
-    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    // 注意：下面四个方法的 C# 名称带了 Native 前缀，但 kernel32 的真实导出名没有前缀，
+    // 必须显式用 EntryPoint 指定，否则运行时报 "Unable to find an entry point named ..."
+    [DllImport("kernel32.dll", EntryPoint = "CreateJobObjectW", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr NativeCreateJobObjectW(IntPtr lpJobAttributes, string? lpName);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
+    [DllImport("kernel32.dll", EntryPoint = "SetInformationJobObject", SetLastError = true)]
     private static extern bool NativeSetInformationJobObject(
         IntPtr hJob, int infoClass, ref JOBOBJECT_EXTENDED_LIMIT_INFORMATION lpInfo, int size);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
+    [DllImport("kernel32.dll", EntryPoint = "AssignProcessToJobObject", SetLastError = true)]
     private static extern bool NativeAssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
 
-    [DllImport("kernel32.dll", SetLastError = true)]
+    [DllImport("kernel32.dll", EntryPoint = "CloseHandle", SetLastError = true)]
     private static extern bool NativeCloseHandle(IntPtr h);
 
     [StructLayout(LayoutKind.Sequential)]
