@@ -59,12 +59,10 @@ Chorus/
 
 ## 用户使用说明
 
-1. 从 Releases 下载并解压 `Chorus-win-x64.zip`。
-2. 到 [sing-box Releases](https://github.com/SagerNet/sing-box/releases) 下载 `sing-box-{ver}-windows-amd64.zip`，把其中的 `sing-box.exe` 放到：
-   - 便携模式：解压目录下的 `core\` 文件夹（推荐），或
-   - 默认位置：`%LOCALAPPDATA%\Chorus\core\`
-3. 启动应用 → 设置页导入订阅或粘贴分享链接 → 保存 → 仪表盘打开开关。
-4. 设置与节点保存在 `%LOCALAPPDATA%\Chorus\settings.json`。
+1. 从 Releases 下载并解压 `Chorus-win-x64.zip`（**已内置官方 sing-box 核心**，位于 `core\sing-box.exe`，构建时自动打包最新稳定版）。
+2. 启动应用 → 设置页导入订阅或粘贴分享链接 → 保存 → 仪表盘打开开关。
+3. 设置与节点保存在 `%LOCALAPPDATA%\Chorus\settings.json`。
+4. 想换核心版本：替换 `core\sing-box.exe`，或把新版放到 `%LOCALAPPDATA%\Chorus\core\`（优先读便携目录）。
 
 ### 自定义策略组
 
@@ -92,7 +90,6 @@ TUN 需要管理员权限。当前版本请以管理员身份运行应用后启�
 ## 已知限制（M1）
 
 - 应用异常退出时系统代理可能残留，可在 Windows 设置中手动关闭，或重启本应用再退出
-- 核心需要手动下载放置（自动下载在路线图中）
 - 路由规则目前是全局 final 指向选择组，无分流规则编辑器
 
 ## 路线图
