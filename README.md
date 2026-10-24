@@ -9,7 +9,7 @@
 ## 功能（当前里程碑 M1）
 
 - 启动 / 停止 sing-box 核心（启动前自动 `sing-box check` 校验配置）
-- 订阅导入：订阅 URL 或手动粘贴分享链接（`ss` / `vmess` / `vless` / `trojan` / `hysteria2`），也支持 sing-box 原生 JSON 订阅
+- **订阅管理**：侧边栏「订阅」页管理多个订阅链接（添加 / 更新 / 全部更新 / 删除），每个订阅独立保存节点与更新状态；也支持手动粘贴分享链接（`ss` / `vmess` / `vless` / `trojan` / `hysteria2` / `anytls`）和 sing-box 原生 JSON 订阅
 - **策略组**：仪表盘默认生成「🚀 节点选择」（手动选择）与「♻️ 自动选择」（urltest）；用户可在 JSON 中自定义策略组，支持
   - 精确引用节点名
   - **嵌套引用其他策略组（在组里选择“节点组”）**
@@ -60,9 +60,10 @@ Chorus/
 ## 用户使用说明
 
 1. 从 Releases 下载并解压 `Chorus-win-x64.zip`（**已内置官方 sing-box 核心**，位于 `core\sing-box.exe`，构建时自动打包最新稳定版）。
-2. 启动应用 → 设置页导入订阅或粘贴分享链接 → 保存 → 仪表盘打开开关。
-3. 设置与节点保存在 `%LOCALAPPDATA%\Chorus\settings.json`。
-4. 想换核心版本：替换 `core\sing-box.exe`，或把新版放到 `%LOCALAPPDATA%\Chorus\core\`（优先读便携目录）。
+2. 启动应用 → 侧边栏「订阅」页添加订阅链接（支持多个）→ 仪表盘打开开关。
+3. 也可以在设置页手动粘贴分享链接补充节点；**手动节点与所有订阅的节点合并后生效**。
+4. 设置与节点保存在 `%LOCALAPPDATA%\Chorus\settings.json`。
+5. 想换核心版本：替换 `core\sing-box.exe`，或把新版放到 `%LOCALAPPDATA%\Chorus\core\`（优先读便携目录）。
    注意：应用要求 sing-box **1.12 或更高版本**（配置使用新版 DNS 服务器格式；CI 打包时自动下载最新稳定版）。
 
 ### 自定义策略组

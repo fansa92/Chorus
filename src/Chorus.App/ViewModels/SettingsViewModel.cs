@@ -15,8 +15,8 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _allowLan;
     [ObservableProperty] private bool _closeToTray = true;
     [ObservableProperty] private string _logLevel = "info";
-    [ObservableProperty] private string _subscriptionUrl = "";
     [ObservableProperty] private string _shareLinks = "";
+    [ObservableProperty] private int _manualNodeCount;
     [ObservableProperty] private bool _hasMessage;
     [ObservableProperty] private string _messageTitle = "";
     [ObservableProperty] private string _messageText = "";
@@ -35,7 +35,7 @@ public partial class SettingsViewModel : ObservableObject
         _allowLan = settings.AllowLan;
         _closeToTray = settings.CloseToTray;
         _logLevel = settings.LogLevel;
-        _subscriptionUrl = settings.Subscriptions.FirstOrDefault() ?? "";
+        _manualNodeCount = settings.Profile.Nodes.Count;
         OnPropertyChanged(string.Empty);
     }
 
@@ -60,8 +60,6 @@ public partial class SettingsViewModel : ObservableObject
         settings.AllowLan = AllowLan;
         settings.CloseToTray = CloseToTray;
         settings.LogLevel = LogLevel;
-        var url = SubscriptionUrl.Trim();
-        settings.Subscriptions = url.Length == 0 ? [] : [url];
         AppServices.Store.Save(settings);
 
         Show("已保存", "设置已保存。若核心正在运行，重启核心后生效。", InfoBarSeverity.Success);
@@ -74,13 +72,6 @@ public partial class SettingsViewModel : ObservableObject
         var errors = new List<string>();
         try
         {
-            var url = SubscriptionUrl.Trim();
-            if (url.Length > 0)
-            {
-                var (fetched, fetchErrors) = await AppServices.Subscriptions.ImportFromUrlAsync(url);
-                nodes.AddRange(fetched);
-                errors.AddRange(fetchErrors);
-            }
             if (ShareLinks.Trim().Length > 0)
             {
                 var (parsed, parseErrors) = SubscriptionParser.Parse(ShareLinks);
@@ -95,16 +86,33 @@ public partial class SettingsViewModel : ObservableObject
 
         if (nodes.Count > 0)
         {
+            // 手动节点追加到现有列表（不再覆盖订阅带来的节点）
             var settings = AppServices.Settings;
-            settings.Profile.Nodes = nodes;
+            settings.Profile.Nodes.AddRange(nodes);
             AppServices.Store.Save(settings);
+            ManualNodeCount = settings.Profile.Nodes.Count;
         }
 
-        var summary = $"导入 {nodes.Count} 个节点，失败 {errors.Count} 条。";
+        var summary = $"导入 {nodes.Count} 个节点，失败 {errors.Count} 条。当前手动节点共 {ManualNodeCount} 个。";
         Show(
             nodes.Count > 0 ? "导入完成" : "导入失败",
             errors.Count > 0 ? summary + " 首个错误：" + errors[0] : summary,
             nodes.Count > 0 ? InfoBarSeverity.Success : InfoBarSeverity.Error);
+    }
+
+    /// <summary>清空手动添加的节点（不影响订阅节点）。</summary>
+    public void ClearManualNodes()
+    {
+        var settings = AppServices.Settings;
+        if (settings.Profile.Nodes.Count == 0)
+        {
+            Show("提示", "当前没有手动节点", InfoBarSeverity.Informational);
+            return;
+        }
+        settings.Profile.Nodes.Clear();
+        AppServices.Store.Save(settings);
+        ManualNodeCount = 0;
+        Show("已清空", "手动节点已清空（订阅节点不受影响）。若核心正在运行，重启核心后生效。", InfoBarSeverity.Informational);
     }
 
     private void Show(string title, string text, InfoBarSeverity severity)

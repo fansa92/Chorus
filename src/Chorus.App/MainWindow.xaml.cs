@@ -52,6 +52,7 @@ public sealed partial class MainWindow : Window
         if (args.SelectedItem is not NavigationViewItem item || item.Tag is not string tag) return;
         var pageType = tag switch
         {
+            "subscriptions" => typeof(SubscriptionsPage),
             "proxies" => typeof(ProxiesPage),
             "logs" => typeof(LogsPage),
             "settings" => typeof(SettingsPage),

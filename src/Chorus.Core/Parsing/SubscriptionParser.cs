@@ -69,6 +69,14 @@ public static class SubscriptionParser
             foreach (var item in outbounds)
             {
                 if (item is not JsonObject outbound) continue;
+                var type = GetString(outbound, "type")?.ToLowerInvariant();
+                // 功能性出站（组/直连/拦截/DNS）直接忽略
+                if (type is "direct" or "block" or "dns" or "selector" or "urltest") continue;
+                if (!IsSupportedProxyType(type))
+                {
+                    errors.Add($"不支持的出站类型：{type ?? "?"}（{GetString(outbound, "tag") ?? "未命名"}，已跳过）");
+                    continue;
+                }
                 if (FromOutbound(outbound) is { } node) nodes.Add(node);
             }
         }
@@ -84,7 +92,6 @@ public static class SubscriptionParser
         var type = GetString(o, "type")?.ToLowerInvariant();
         var tag = GetString(o, "tag") ?? "";
         if (type is null or "direct" or "block" or "dns" or "selector" or "urltest") return null;
-
         var server = GetString(o, "server");
         var port = 0;
         if (o["server_port"] is JsonValue pv) pv.TryGetValue<int>(out port);
@@ -92,7 +99,8 @@ public static class SubscriptionParser
 
         var node = new NodeEntry
         {
-            Protocol = type,
+            // shadowsocks 归一为内部通用的 "ss"
+            Protocol = type == "shadowsocks" ? "ss" : type,
             Tag = tag,
             Server = server,
             ServerPort = port,
@@ -148,6 +156,15 @@ public static class SubscriptionParser
 
     private static bool IsShareLink(string line) =>
         ShareLinkParser.SupportedSchemes.Any(s => line.StartsWith(s, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>ConfigGenerator 支持的代理出站类型（含 sing-box JSON 与分享链接里的别名）。</summary>
+    private static readonly string[] SupportedProxyTypes =
+    [
+        "vmess", "vless", "trojan", "ss", "shadowsocks", "hysteria2", "hy2", "anytls",
+    ];
+
+    private static bool IsSupportedProxyType(string? type) =>
+        type is not null && SupportedProxyTypes.Contains(type);
 
     private static string[] SplitLines(string content) =>
         content.Split('\n').Select(l => l.TrimEnd('\r')).ToArray();

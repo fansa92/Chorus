@@ -30,6 +30,7 @@
             IsTitleBarAutoPaddingEnabled="False">
             <NavigationView.MenuItems>
                 <NavigationViewItem Content="仪表盘" Tag="dashboard" Icon="Home" />
+                <NavigationViewItem Content="订阅" Tag="subscriptions" Icon="Link" />
                 <NavigationViewItem Content="策略组" Tag="proxies" Icon="Send" />
                 <NavigationViewItem Content="日志" Tag="logs" Icon="Document" />
                 <NavigationViewItem Content="设置" Tag="settings" Icon="Setting" />

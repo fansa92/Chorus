@@ -9,7 +9,7 @@ public static class ShareLinkParser
 {
     public static readonly string[] SupportedSchemes =
     [
-        "vmess://", "vless://", "trojan://", "ss://", "hysteria2://", "hy2://",
+        "vmess://", "vless://", "trojan://", "ss://", "hysteria2://", "hy2://", "anytls://",
     ];
 
     public static NodeEntry? Parse(string link, out string? error)
@@ -24,6 +24,7 @@ public static class ShareLinkParser
             if (link.StartsWith("ss://", StringComparison.OrdinalIgnoreCase)) return ParseShadowsocks(link);
             if (link.StartsWith("hysteria2://", StringComparison.OrdinalIgnoreCase) ||
                 link.StartsWith("hy2://", StringComparison.OrdinalIgnoreCase)) return ParseHysteria2(link);
+            if (link.StartsWith("anytls://", StringComparison.OrdinalIgnoreCase)) return ParseAnyTls(link);
             error = "不支持的链接格式：" + Truncate(link);
         }
         catch (Exception ex)
@@ -129,6 +130,27 @@ public static class ShareLinkParser
             Sni = q.GetValueOrDefault("sni"),
             Insecure = IsTrue(q.GetValueOrDefault("insecure")),
             ObfsPassword = q.GetValueOrDefault("obfs-password") ?? q.GetValueOrDefault("obfsParam"),
+            Tls = true,
+        };
+        if (string.IsNullOrWhiteSpace(node.Tag)) node.Tag = $"{node.Server}:{node.ServerPort}";
+        ValidateServer(node);
+        return node;
+    }
+
+    private static NodeEntry ParseAnyTls(string link)
+    {
+        // anytls://password@server:port?sni=...#tag
+        var uri = new Uri(link);
+        var q = ParseQuery(uri.Query);
+        var node = new NodeEntry
+        {
+            Protocol = "anytls",
+            Tag = Uri.UnescapeDataString(uri.Fragment.TrimStart('#')),
+            Server = uri.Host,
+            ServerPort = uri.Port > 0 ? uri.Port : 443,
+            Password = Uri.UnescapeDataString(uri.UserInfo),
+            Sni = q.GetValueOrDefault("sni") ?? q.GetValueOrDefault("peer"),
+            Insecure = IsTrue(q.GetValueOrDefault("allowInsecure")) || IsTrue(q.GetValueOrDefault("insecure")),
             Tls = true,
         };
         if (string.IsNullOrWhiteSpace(node.Tag)) node.Tag = $"{node.Server}:{node.ServerPort}";

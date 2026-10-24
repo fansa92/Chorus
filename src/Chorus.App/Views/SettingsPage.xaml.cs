@@ -19,6 +19,11 @@ public sealed partial class SettingsPage : Page
         await Vm.ImportAsync();
     }
 
+    private void ClearManual_Click(object sender, RoutedEventArgs e)
+    {
+        Vm.ClearManualNodes();
+    }
+
     private void Save_Click(object sender, RoutedEventArgs e)
     {
         Vm.Save();

@@ -70,6 +70,46 @@ public class SubscriptionParserTests
     }
 
     [Fact]
+    public void SingBox_Json_Shadowsocks_Normalized_To_Ss()
+    {
+        // sing-box JSON 订阅里 shadowsocks 节点需归一为内部 "ss"，否则配置生成会抛不支持
+        const string content = """
+            {
+              "outbounds": [
+                { "type": "shadowsocks", "tag": "hk", "server": "a.com", "server_port": 8388, "method": "aes-256-gcm", "password": "pw" }
+              ]
+            }
+            """;
+
+        var (nodes, errors) = SubscriptionParser.Parse(content);
+
+        Assert.Empty(errors);
+        var node = Assert.Single(nodes);
+        Assert.Equal("ss", node.Protocol);
+        Assert.Equal("aes-256-gcm", node.Method);
+        Assert.Equal("pw", node.Password);
+    }
+
+    [Fact]
+    public void SingBox_Json_Unsupported_Type_Is_Skipped_With_Error()
+    {
+        const string content = """
+            {
+              "outbounds": [
+                { "type": "tuic", "tag": "weird", "server": "a.com", "server_port": 443, "uuid": "u", "password": "p" },
+                { "type": "anytls", "tag": "ok", "server": "b.com", "server_port": 443, "password": "p", "tls": { "enabled": true } }
+              ]
+            }
+            """;
+
+        var (nodes, errors) = SubscriptionParser.Parse(content);
+
+        var node = Assert.Single(nodes);
+        Assert.Equal("anytls", node.Protocol);
+        Assert.Contains(errors, e => e.Contains("tuic"));
+    }
+
+    [Fact]
     public void Empty_Content_Returns_Error()
     {
         var (nodes, errors) = SubscriptionParser.Parse("   \n  ");

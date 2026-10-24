@@ -145,6 +145,51 @@ public class ConfigGeneratorTests
     }
 
     [Fact]
+    public void AnyTls_Node_Maps_Password_And_Tls()
+    {
+        var settings = Settings(new NodeEntry
+        {
+            Protocol = "anytls",
+            Tag = "AT",
+            Server = "a.com",
+            ServerPort = 443,
+            Password = "pw",
+            Tls = true,
+            Sni = "sni.com",
+            Insecure = true,
+        });
+
+        var config = ConfigGenerator.Build(settings);
+
+        var node = FindOutbound(config, "AT");
+        Assert.Equal("anytls", node?["type"]?.GetValue<string>());
+        Assert.Equal("pw", node?["password"]?.GetValue<string>());
+        Assert.True(node?["tls"]?["enabled"]?.GetValue<bool>());
+        Assert.Equal("sni.com", node?["tls"]?["server_name"]?.GetValue<string>());
+        Assert.True(node?["tls"]?["insecure"]?.GetValue<bool>());
+    }
+
+    [Fact]
+    public void Subscription_Nodes_Are_Merged_Into_Config()
+    {
+        var settings = Settings(VmessNode("手动节点"));
+        settings.Subscriptions.Add(new SubscriptionEntry
+        {
+            Name = "机场A",
+            Url = "https://example.com/sub",
+            Nodes = [new NodeEntry { Protocol = "ss", Tag = "订阅节点", Server = "b.com", ServerPort = 8388, Method = "aes-256-gcm", Password = "pw" }],
+        });
+
+        var config = ConfigGenerator.Build(settings);
+
+        var selector = FindOutbound(config, ConfigGenerator.SelectGroupTag);
+        var members = selector?["outbounds"]?.AsArray().Select(x => (string?)x).ToList()!;
+        Assert.Contains("手动节点", members);
+        Assert.Contains("订阅节点", members);
+        Assert.NotNull(FindOutbound(config, "订阅节点"));
+    }
+
+    [Fact]
     public void VmessNode_Maps_CoreFields()
     {
         var config = ConfigGenerator.Build(Settings(VmessNode()));

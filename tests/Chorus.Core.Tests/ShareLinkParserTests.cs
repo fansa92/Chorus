@@ -127,6 +127,25 @@ public class ShareLinkParserTests
     }
 
     [Fact]
+    public void Parses_AnyTls()
+    {
+        var link = "anytls://pass123@1.2.3.4:443?sni=example.com&allowInsecure=1#anytls-node";
+
+        var node = ShareLinkParser.Parse(link, out var error);
+
+        Assert.Null(error);
+        Assert.NotNull(node);
+        Assert.Equal("anytls", node!.Protocol);
+        Assert.Equal("pass123", node.Password);
+        Assert.Equal("1.2.3.4", node.Server);
+        Assert.Equal(443, node.ServerPort);
+        Assert.Equal("example.com", node.Sni);
+        Assert.True(node.Tls);
+        Assert.True(node.Insecure);
+        Assert.Equal("anytls-node", node.Tag);
+    }
+
+    [Fact]
     public void Unsupported_Scheme_Returns_Error()
     {
         var node = ShareLinkParser.Parse("https://example.com", out var error);

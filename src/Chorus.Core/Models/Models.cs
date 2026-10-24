@@ -38,8 +38,19 @@ public sealed class ProxyGroup
 
 public sealed class Profile
 {
+    /// <summary>手动添加的节点（设置页粘贴分享链接导入）。</summary>
     public List<NodeEntry> Nodes { get; set; } = [];
     public List<ProxyGroup> Groups { get; set; } = [];
+}
+
+/// <summary>一个订阅源：URL + 其解析出的节点 + 更新状态。多个订阅的节点与手动节点合并后生效。</summary>
+public sealed class SubscriptionEntry
+{
+    public string Name { get; set; } = "";
+    public string Url { get; set; } = "";
+    public List<NodeEntry> Nodes { get; set; } = [];
+    public DateTimeOffset? LastUpdated { get; set; }
+    public string? LastError { get; set; }
 }
 
 public sealed class AppSettings
@@ -52,6 +63,15 @@ public sealed class AppSettings
     public bool EnableSystemProxy { get; set; }
     public bool CloseToTray { get; set; } = true;
     public string LogLevel { get; set; } = "info";
-    public List<string> Subscriptions { get; set; } = [];
+    public List<SubscriptionEntry> Subscriptions { get; set; } = [];
     public Profile Profile { get; set; } = new();
+
+    /// <summary>生效的节点全集：手动节点 + 所有订阅的节点（按此顺序合并）。</summary>
+    public List<NodeEntry> EffectiveNodes()
+    {
+        var all = new List<NodeEntry>(Profile.Nodes);
+        foreach (var sub in Subscriptions)
+            all.AddRange(sub.Nodes);
+        return all;
+    }
 }

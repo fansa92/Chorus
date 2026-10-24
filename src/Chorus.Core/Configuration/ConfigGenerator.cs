@@ -12,7 +12,7 @@ public static partial class ConfigGenerator
 
     public static JsonObject Build(AppSettings settings)
     {
-        var nodes = DedupeTags(settings.Profile.Nodes);
+        var nodes = DedupeTags(settings.EffectiveNodes());
         if (nodes.Count == 0)
             throw new InvalidOperationException("没有可用节点，请先在设置页导入订阅或手动添加节点。");
 
@@ -194,7 +194,7 @@ public static partial class ConfigGenerator
                 AddTls(o, n, tlsForced: true);
                 break;
 
-            case "ss":
+            case "ss" or "shadowsocks":
                 o["type"] = "shadowsocks";
                 o["method"] = n.Method;
                 o["password"] = n.Password;
@@ -207,6 +207,12 @@ public static partial class ConfigGenerator
                 AddTls(o, n, tlsForced: true);
                 if (!string.IsNullOrWhiteSpace(n.ObfsPassword))
                     o["obfs"] = new JsonObject { ["enabled"] = true, ["type"] = "salamander", ["password"] = n.ObfsPassword };
+                break;
+
+            case "anytls":
+                o["type"] = "anytls";
+                o["password"] = n.Password;
+                AddTls(o, n, tlsForced: true);
                 break;
 
             default:

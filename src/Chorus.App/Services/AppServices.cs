@@ -25,6 +25,7 @@ public static class AppServices
     public static AppRunner Runner { get; private set; } = null!;
 
     public static DashboardViewModel DashboardVm { get; private set; } = null!;
+    public static SubscriptionsViewModel SubscriptionsVm { get; private set; } = null!;
     public static ProxiesViewModel ProxiesVm { get; private set; } = null!;
     public static LogsViewModel LogsVm { get; private set; } = null!;
     public static SettingsViewModel SettingsVm { get; private set; } = null!;
@@ -44,6 +45,7 @@ public static class AppServices
         Runner = new AppRunner();
 
         DashboardVm = new DashboardViewModel();
+        SubscriptionsVm = new SubscriptionsViewModel();
         ProxiesVm = new ProxiesViewModel();
         LogsVm = new LogsViewModel();
         SettingsVm = new SettingsViewModel();

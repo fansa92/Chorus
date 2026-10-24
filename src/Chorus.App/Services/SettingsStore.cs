@@ -17,6 +17,7 @@ public sealed class SettingsStore
         WriteIndented = true,
         PropertyNameCaseInsensitive = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new SubscriptionEntryConverter() },
     };
 
     public AppSettings Load()
