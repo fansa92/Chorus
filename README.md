@@ -63,6 +63,7 @@ Chorus/
 2. 启动应用 → 设置页导入订阅或粘贴分享链接 → 保存 → 仪表盘打开开关。
 3. 设置与节点保存在 `%LOCALAPPDATA%\Chorus\settings.json`。
 4. 想换核心版本：替换 `core\sing-box.exe`，或把新版放到 `%LOCALAPPDATA%\Chorus\core\`（优先读便携目录）。
+   注意：应用要求 sing-box **1.12 或更高版本**（配置使用新版 DNS 服务器格式；CI 打包时自动下载最新稳定版）。
 
 ### 自定义策略组
 
