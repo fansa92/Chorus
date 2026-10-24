@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -34,6 +36,17 @@ public sealed partial class MainWindow : Window
             // 图标加载失败不影响主功能
         }
 
+        // 托盘交互：
+        // - 左键 / 双击托盘图标显示主窗口（NoLeftClickDelay=True 让左键立即响应，不等双击判定）
+        // - 菜单项必须用 Command：H.NotifyIcon 默认 PopupMenu 模式下，
+        //   原生菜单点击只调用 MenuFlyoutItem.Command，Click 事件不会触发
+        var showCommand = new RelayCommand(ShowWindow);
+        var exitCommand = new RelayCommand(ExitApp);
+        TrayIcon.LeftClickCommand = showCommand;
+        TrayIcon.DoubleClickCommand = showCommand;
+        TrayShowItem.Command = showCommand;
+        TrayExitItem.Command = exitCommand;
+
         ContentFrame.Navigate(typeof(DashboardPage));
         NavList.SelectedIndex = 0;
 
@@ -62,16 +75,37 @@ public sealed partial class MainWindow : Window
             ContentFrame.Navigate(pageType);
     }
 
-    private void ShowWindow_Click(object sender, RoutedEventArgs e)
+    /// <summary>从托盘恢复主窗口：显示、激活并尽量带到最前。</summary>
+    private void ShowWindow()
     {
-        AppWindow.Show();
-        Activate();
+        // 托盘命令可能在非 UI 线程触发，统一 Post 回 UI 线程操作窗口对象
+        Ui.Post(() =>
+        {
+            try
+            {
+                AppWindow.Show();
+                Activate();
+                // 窗口被隐藏过再显示时，Activate 不一定能抢到前台，用经典技巧兜底
+                ForceForegroundWindow(GetWindowHandle(this));
+            }
+            catch
+            {
+                // 恢复窗口失败不崩溃（窗口可能正在关闭）
+            }
+        });
     }
 
-    private async void ExitApp_Click(object sender, RoutedEventArgs e)
+    /// <summary>托盘菜单「退出」。</summary>
+    private void ExitApp()
     {
         if (_exiting) return;
         _exiting = true;
+        // 统一回 UI 线程执行：TrayIcon.Dispose()/Close() 等需要 UI 线程
+        Ui.Post(() => _ = ExitAsync());
+    }
+
+    private async Task ExitAsync()
+    {
         try
         {
             // 停止核心可能卡住（如核心无响应），加超时兜底，避免退出流程被挂起
@@ -100,4 +134,47 @@ public sealed partial class MainWindow : Window
         // 兜底：确保进程真正退出（WinUI 的 Exit() 只是请求关闭，遇到挂起的后台任务时可能不终止）
         Environment.Exit(0);
     }
+
+    private static nint GetWindowHandle(Window window) =>
+        WinRT.Interop.WindowNative.GetWindowHandle(window);
+
+    /// <summary>
+    /// 经典的强制前台窗口技巧：临时把线程输入挂到当前前台窗口所在线程，
+    /// 绕过 Windows 的前台锁限制，保证从托盘恢复时窗口能跳到最前。
+    /// </summary>
+    private static void ForceForegroundWindow(nint hwnd)
+    {
+        if (hwnd == 0) return;
+        var foreground = GetForegroundWindow();
+        if (foreground == hwnd) return;
+        var foregroundThread = GetWindowThreadProcessId(foreground, out _);
+        var currentThread = GetCurrentThreadId();
+        if (foregroundThread != currentThread)
+        {
+            AttachThreadInput(currentThread, foregroundThread, true);
+            SetForegroundWindow(hwnd);
+            AttachThreadInput(currentThread, foregroundThread, false);
+        }
+        else
+        {
+            SetForegroundWindow(hwnd);
+        }
+    }
+
+    [DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint hWnd, out uint lpdwProcessId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll", EntryPoint = "SetForegroundWindow")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(nint hWnd);
 }

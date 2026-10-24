@@ -79,6 +79,7 @@ public partial class DashboardViewModel : ObservableObject
             Running = running;
             if (running)
             {
+                HasHint = false; // 启动成功后清掉「核心未运行」之类的过期提示
                 _startedAt = DateTimeOffset.Now;
                 _totalUp = 0;
                 _totalDown = 0;

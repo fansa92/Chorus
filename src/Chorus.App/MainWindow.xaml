@@ -53,31 +53,31 @@
                         <ListViewItem Tag="dashboard" Padding="12,9">
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                                 <SymbolIcon Symbol="Home" />
-                                <TextBlock Text="仪表盘" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="仪表盘" VerticalAlignment="Center" />
                             </Grid>
                         </ListViewItem>
                         <ListViewItem Tag="proxies" Padding="12,9">
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                                 <SymbolIcon Symbol="Send" />
-                                <TextBlock Text="策略组" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="策略组" VerticalAlignment="Center" />
                             </Grid>
                         </ListViewItem>
                         <ListViewItem Tag="subscriptions" Padding="12,9">
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                                 <SymbolIcon Symbol="Link" />
-                                <TextBlock Text="订阅" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="订阅" VerticalAlignment="Center" />
                             </Grid>
                         </ListViewItem>
                         <ListViewItem Tag="logs" Padding="12,9">
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                                 <SymbolIcon Symbol="Document" />
-                                <TextBlock Text="日志" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="日志" VerticalAlignment="Center" />
                             </Grid>
                         </ListViewItem>
                         <ListViewItem Tag="settings" Padding="12,9">
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                                 <SymbolIcon Symbol="Setting" />
-                                <TextBlock Text="设置" VerticalAlignment="Center" />
+                                <TextBlock Grid.Column="1" Text="设置" VerticalAlignment="Center" />
                             </Grid>
                         </ListViewItem>
                     </ListView>
@@ -87,13 +87,20 @@
             <Frame x:Name="ContentFrame" Grid.Column="1" />
         </Grid>
 
+        <!--
+            托盘图标。注意：H.NotifyIcon 默认 ContextMenuMode=PopupMenu，
+            原生菜单点击只会执行 MenuFlyoutItem.Command，不会触发 Click 事件，
+            因此菜单项统一在代码后端绑定 Command（见 MainWindow.xaml.cs）。
+        -->
         <tb:TaskbarIcon
             x:Name="TrayIcon"
-            ToolTipText="Chorus">
+            ToolTipText="Chorus"
+            NoLeftClickDelay="True">
             <tb:TaskbarIcon.ContextFlyout>
                 <MenuFlyout>
-                    <MenuFlyoutItem Text="显示主窗口" Click="ShowWindow_Click" />
-                    <MenuFlyoutItem Text="退出" Click="ExitApp_Click" />
+                    <MenuFlyoutItem x:Name="TrayShowItem" Text="显示主窗口" />
+                    <MenuFlyoutSeparator />
+                    <MenuFlyoutItem x:Name="TrayExitItem" Text="退出" />
                 </MenuFlyout>
             </tb:TaskbarIcon.ContextFlyout>
         </tb:TaskbarIcon>
