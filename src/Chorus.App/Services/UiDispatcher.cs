@@ -17,6 +17,6 @@ public static class Ui
             action();
             return;
         }
-        queue.TryEnqueue(_ => action());
+        queue.TryEnqueue(() => action());
     }
 }

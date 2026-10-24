@@ -1,6 +1,7 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Chorus.App.Services;
 using Chorus.App.Views;
 
@@ -18,7 +19,7 @@ public sealed partial class MainWindow : Window
         SetTitleBar(AppTitleBar);
         SystemBackdrop = new MicaBackdrop();
 
-        TrayIcon.IconSource = new BitmapIconSource { UriSource = new Uri("ms-appx:///Assets/appicon.ico") };
+        TrayIcon.IconSource = new BitmapImage(new Uri("ms-appx:///Assets/appicon.ico"));
 
         ContentFrame.Navigate(typeof(DashboardPage));
         NavView.SelectedItem = NavView.MenuItems[0];
@@ -28,7 +29,7 @@ public sealed partial class MainWindow : Window
             if (!_exiting && AppServices.Settings.CloseToTray)
             {
                 e.Cancel = true;
-                Hide();
+                AppWindow.Hide();
             }
         };
     }
@@ -49,7 +50,7 @@ public sealed partial class MainWindow : Window
 
     private void ShowWindow_Click(object sender, RoutedEventArgs e)
     {
-        Show();
+        AppWindow.Show();
         Activate();
     }
 
