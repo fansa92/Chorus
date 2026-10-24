@@ -1,0 +1,33 @@
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.8.34330.188
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Chorus.Core", "src\Chorus.Core\Chorus.Core.csproj", "{3E6F9B2A-1C4D-4E5F-8A7B-9C0D1E2F3A4B}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Chorus.Core.Tests", "tests\Chorus.Core.Tests\Chorus.Core.Tests.csproj", "{5F7A1C3B-2D4E-4F60-9B8C-0D1E2F3A4B5C}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Chorus.App", "src\Chorus.App\Chorus.App.csproj", "{7A9C3E5D-4F60-4A71-8D9E-1F2A3B4C5D6E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3E6F9B2A-1C4D-4E5F-8A7B-9C0D1E2F3A4B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3E6F9B2A-1C4D-4E5F-8A7B-9C0D1E2F3A4B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3E6F9B2A-1C4D-4E5F-8A7B-9C0D1E2F3A4B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3E6F9B2A-1C4D-4E5F-8A7B-9C0D1E2F3A4B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5F7A1C3B-2D4E-4F60-9B8C-0D1E2F3A4B5C}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5F7A1C3B-2D4E-4F60-9B8C-0D1E2F3A4B5C}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5F7A1C3B-2D4E-4F60-9B8C-0D1E2F3A4B5C}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5F7A1C3B-2D4E-4F60-9B8C-0D1E2F3A4B5C}.Release|Any CPU.Build.0 = Release|Any CPU
+		{7A9C3E5D-4F60-4A71-8D9E-1F2A3B4C5D6E}.Debug|Any CPU.ActiveCfg = Debug|x64
+		{7A9C3E5D-4F60-4A71-8D9E-1F2A3B4C5D6E}.Debug|Any CPU.Build.0 = Debug|x64
+		{7A9C3E5D-4F60-4A71-8D9E-1F2A3B4C5D6E}.Release|Any CPU.ActiveCfg = Release|x64
+		{7A9C3E5D-4F60-4A71-8D9E-1F2A3B4C5D6E}.Release|Any CPU.Build.0 = Release|x64
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal

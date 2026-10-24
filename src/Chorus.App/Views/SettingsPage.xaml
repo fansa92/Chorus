@@ -1,0 +1,51 @@
+<Page
+    x:Class="Chorus.App.Views.SettingsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d"
+    x:DefaultBindMode="OneWay">
+
+    <ScrollViewer>
+        <StackPanel
+            MaxWidth="720"
+            HorizontalAlignment="Left"
+            Spacing="12"
+            Padding="24,16,24,24">
+
+            <TextBlock Text="设置" Style="{StaticResource TitleTextBlockStyle}" />
+
+            <InfoBar
+                IsOpen="{x:Bind Vm.HasMessage}"
+                Title="{x:Bind Vm.MessageTitle}"
+                Message="{x:Bind Vm.MessageText}"
+                Severity="{x:Bind Vm.MessageSeverity}"
+                IsClosable="False" />
+
+            <TextBlock Text="代理" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <TextBox Header="混合代理端口（HTTP + SOCKS）" Text="{x:Bind Vm.MixedPortText, Mode=TwoWay}" />
+            <TextBox Header="Clash API 端口" Text="{x:Bind Vm.ClashApiPortText, Mode=TwoWay}" />
+            <ToggleSwitch Header="允许局域网连接" IsOn="{x:Bind Vm.AllowLan, Mode=TwoWay}" />
+            <ToggleSwitch Header="启动后自动设置系统代理（TUN 模式下无效）"
+                          IsOn="{x:Bind Vm.EnableSystemProxy, Mode=TwoWay}" />
+            <ToggleSwitch Header="启用 TUN 模式（需要以管理员身份运行）"
+                          IsOn="{x:Bind Vm.EnableTun, Mode=TwoWay}" />
+
+            <TextBlock Text="订阅与节点" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <TextBox Header="订阅地址" Text="{x:Bind Vm.SubscriptionUrl, Mode=TwoWay}"
+                     PlaceholderText="https://example.com/sub" />
+            <TextBox Header="手动粘贴分享链接（每行一条，支持 ss/vmess/vless/trojan/hysteria2）"
+                     Text="{x:Bind Vm.ShareLinks, Mode=TwoWay}"
+                     AcceptsReturn="True" Height="110" TextWrapping="Wrap" />
+            <Button Content="导入节点" Click="Import_Click" Style="{StaticResource AccentButtonStyle}" />
+
+            <TextBlock Text="其他" Style="{StaticResource SubtitleTextBlockStyle}" />
+            <ComboBox Header="日志等级" ItemsSource="{x:Bind Vm.LogLevels}"
+                      SelectedItem="{x:Bind Vm.LogLevel, Mode=TwoWay}" />
+            <ToggleSwitch Header="关闭窗口时最小化到托盘" IsOn="{x:Bind Vm.CloseToTray, Mode=TwoWay}" />
+
+            <Button Content="保存设置" Click="Save_Click" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

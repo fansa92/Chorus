@@ -1,0 +1,44 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 单元测试
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: 运行单元测试
+        run: dotnet test tests/Chorus.Core.Tests/Chorus.Core.Tests.csproj -c Release
+
+  build:
+    name: 编译 WinUI 应用
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: 发布应用 (win-x64)
+        run: dotnet publish src/Chorus.App/Chorus.App.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -o publish
+
+      - name: 打包 zip
+        shell: pwsh
+        run: Compress-Archive -Path publish/* -DestinationPath Chorus-win-x64.zip -Force
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: Chorus-win-x64
+          path: Chorus-win-x64.zip

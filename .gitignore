@@ -1,0 +1,13 @@
+bin/
+obj/
+publish/
+.vs/
+.vscode/
+*.user
+*.suo
+*.log
+AppPackages/
+BundleArtifacts/
+*.appx
+*.msix
+*.pdb

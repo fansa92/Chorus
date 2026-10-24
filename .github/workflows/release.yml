@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  release:
+    name: 发布 Release
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: 运行单元测试
+        run: dotnet test tests/Chorus.Core.Tests/Chorus.Core.Tests.csproj -c Release
+
+      - name: 发布应用 (win-x64)
+        run: dotnet publish src/Chorus.App/Chorus.App.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -o publish
+
+      - name: 打包 zip
+        shell: pwsh
+        run: Compress-Archive -Path publish/* -DestinationPath Chorus-win-x64.zip -Force
+
+      - name: 创建 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Chorus-win-x64.zip
+          generate_release_notes: true
