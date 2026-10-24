@@ -12,6 +12,15 @@ public partial class App : Application
     public App()
     {
         InitializeComponent();
+
+        AppDomain.CurrentDomain.UnhandledException += (_, e) =>
+            WriteCrashLog("AppDomain", e.ExceptionObject as Exception);
+        UnhandledException += (_, e) =>
+        {
+            WriteCrashLog("Xaml", e.Exception);
+            e.Handled = false;
+        };
+
         _singleInstanceMutex = new Mutex(true, @"Local\Chorus.SingleInstance", out var createdNew);
         if (!createdNew)
         {
@@ -22,16 +31,41 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        if (_singleInstanceMutex is null)
+        try
         {
-            Exit();
-            return;
+            if (_singleInstanceMutex is null)
+            {
+                Exit();
+                return;
+            }
+
+            Ui.Initialize(DispatcherQueue.GetForCurrentThread());
+            AppServices.Initialize();
+
+            _window = new MainWindow();
+            _window.Activate();
         }
+        catch (Exception ex)
+        {
+            WriteCrashLog("OnLaunched", ex);
+            throw;
+        }
+    }
 
-        Ui.Initialize(DispatcherQueue.GetForCurrentThread());
-        AppServices.Initialize();
-
-        _window = new MainWindow();
-        _window.Activate();
+    internal static void WriteCrashLog(string source, Exception? ex)
+    {
+        try
+        {
+            var dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Chorus");
+            Directory.CreateDirectory(dir);
+            File.AppendAllText(
+                Path.Combine(dir, "crash.log"),
+                $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{source}]{Environment.NewLine}{ex}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch
+        {
+            // 崩溃日志写入失败时不做任何事
+        }
     }
 }

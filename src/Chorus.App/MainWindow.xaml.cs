@@ -1,3 +1,4 @@
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -17,9 +18,21 @@ public sealed partial class MainWindow : Window
         Title = "Chorus";
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
-        SystemBackdrop = new MicaBackdrop();
 
-        TrayIcon.IconSource = new BitmapImage(new Uri("ms-appx:///Assets/appicon.ico"));
+        if (MicaController.IsSupported())
+        {
+            SystemBackdrop = new MicaBackdrop();
+        }
+
+        try
+        {
+            var iconPath = Path.Combine(AppContext.BaseDirectory, "Assets", "appicon.ico");
+            TrayIcon.IconSource = new BitmapImage(new Uri(iconPath));
+        }
+        catch
+        {
+            // 图标加载失败不影响主功能
+        }
 
         ContentFrame.Navigate(typeof(DashboardPage));
         NavView.SelectedItem = NavView.MenuItems[0];
