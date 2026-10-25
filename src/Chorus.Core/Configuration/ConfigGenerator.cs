@@ -10,7 +10,10 @@ public static partial class ConfigGenerator
     public const string AutoGroupTag = "♻️ 自动选择";
     public const string SelectGroupTag = "🚀 节点选择";
 
-    public static JsonObject Build(AppSettings settings)
+    public static JsonObject Build(AppSettings settings) => BuildWithReport(settings).Config;
+
+    /// <summary>生成配置，并返回订阅路由合并结果（便于在日志里说明规则有没有真正生效）。</summary>
+    public static (JsonObject Config, RoutingMergeReport Routing) BuildWithReport(AppSettings settings)
     {
         var nodes = DedupeTags(settings.EffectiveNodes());
         if (nodes.Count == 0)
@@ -98,7 +101,7 @@ public static partial class ConfigGenerator
             });
         }
 
-        return new JsonObject
+        var config = new JsonObject
         {
             ["log"] = new JsonObject
             {
@@ -145,6 +148,10 @@ public static partial class ConfigGenerator
                 ["cache_file"] = new JsonObject { ["enabled"] = true },
             },
         };
+
+        // 订阅自带的分流规则（规则集 / dns）在这里并入；引用不到的条目会被剔除
+        var report = RoutingMerger.Apply(config, settings);
+        return (config, report);
     }
 
     /// <summary>展开策略组成员：支持精确节点名、精确组名、"*"（全部节点）、通配符（匹配节点名）与内置出站（direct/block）。</summary>

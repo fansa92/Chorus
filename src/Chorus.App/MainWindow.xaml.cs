@@ -67,6 +67,7 @@ public sealed partial class MainWindow : Window
         {
             "subscriptions" => typeof(SubscriptionsPage),
             "proxies" => typeof(ProxiesPage),
+            "rules" => typeof(RulesPage),
             "logs" => typeof(LogsPage),
             "settings" => typeof(SettingsPage),
             _ => typeof(DashboardPage),

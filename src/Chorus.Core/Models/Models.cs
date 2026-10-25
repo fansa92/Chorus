@@ -57,6 +57,16 @@ public sealed class SubscriptionEntry
     public List<NodeEntry> Nodes { get; set; } = [];
     /// <summary>订阅配置里的策略组（selector/urltest），与节点一样随订阅更新。</summary>
     public List<ProxyGroup> Groups { get; set; } = [];
+
+    /// <summary>
+    /// sing-box 原生订阅里自带的 route 片段（rules / rule_set / final 的原始 JSON）。
+    /// 生成配置时会被合并进去，规则页也直接展示这些内容。
+    /// </summary>
+    public string? RouteJson { get; set; }
+
+    /// <summary>订阅自带的 dns 段原始 JSON。</summary>
+    public string? DnsJson { get; set; }
+
     public DateTimeOffset? LastUpdated { get; set; }
     public string? LastError { get; set; }
 }
@@ -80,6 +90,12 @@ public sealed class AppSettings
 
     public List<SubscriptionEntry> Subscriptions { get; set; } = [];
     public Profile Profile { get; set; } = new();
+
+    /// <summary>
+    /// 是否采用订阅自带的 route/dns（规则集分流）。关闭后只用 Chorus 内置的两条模式规则。
+    /// 默认开启：订阅转换服务给的规则集才是真正的分流依据。
+    /// </summary>
+    public bool ApplySubscriptionRouting { get; set; } = true;
 
     /// <summary>生效的节点全集：手动节点 + 所有订阅的节点（按此顺序合并）。</summary>
     public List<NodeEntry> EffectiveNodes()

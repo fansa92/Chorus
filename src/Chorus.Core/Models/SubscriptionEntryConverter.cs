@@ -48,6 +48,10 @@ public sealed class SubscriptionEntryConverter : JsonConverter<SubscriptionEntry
                 {
                     entry.LastUpdated = updated;
                 }
+                // 订阅自带的 route/dns 片段同样必须读回：漏掉就会在存盘后丢失，
+                // 规则页与生成配置都会退回「只有内置两条模式规则」
+                entry.RouteJson = GetString(root, "routeJson");
+                entry.DnsJson = GetString(root, "dnsJson");
                 if (string.IsNullOrWhiteSpace(entry.Name) && entry.Url.Length > 0)
                     entry.Name = DefaultName(entry.Url);
                 return entry;
@@ -75,6 +79,10 @@ public sealed class SubscriptionEntryConverter : JsonConverter<SubscriptionEntry
         }
         if (value.LastUpdated is { } updated)
             writer.WriteString("lastUpdated", updated);
+        if (value.RouteJson is { Length: > 0 } routeJson)
+            writer.WriteString("routeJson", routeJson);
+        if (value.DnsJson is { Length: > 0 } dnsJson)
+            writer.WriteString("dnsJson", dnsJson);
         if (value.LastError is { } error)
             writer.WriteString("lastError", error);
         writer.WriteEndObject();

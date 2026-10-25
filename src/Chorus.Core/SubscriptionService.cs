@@ -1,5 +1,6 @@
 using System.Net;
 using Chorus.Core.Models;
+using Chorus.Core.Net;
 
 namespace Chorus.Core;
 
@@ -33,17 +34,23 @@ public sealed class SubscriptionService
     /// </summary>
     public Func<(string Host, int Port)?>? ProxyProvider { get; set; }
 
-    /// <summary>下载订阅原始内容。优先经核心代理，失败再回退直连。</summary>
+    /// <summary>最近一次拉取走的是哪条路（代理 / 直连用了哪个 IP），用于在界面上给出可见的依据。</summary>
+    public string? LastFetchDetail { get; private set; }
+
+    /// <summary>下载订阅原始内容。优先经核心代理；直连时先做多 DNS 解析 + IP 竞速。</summary>
     public async Task<string> FetchAsync(string url, CancellationToken ct = default)
     {
         var endpoint = ProxyProvider?.Invoke();
         Exception? proxyFailure = null;
+        LastFetchDetail = null;
 
         if (endpoint is { } proxy && proxy.Port is > 0 and <= 65535)
         {
             try
             {
-                return await GetStringAsync(Client(proxy), url, ct);
+                var content = await GetStringAsync(Client(proxy), url, ct);
+                LastFetchDetail = $"经核心代理 {proxy.Host}:{proxy.Port}";
+                return content;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -55,9 +62,46 @@ public sealed class SubscriptionService
             }
         }
 
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)
+            || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            throw new InvalidOperationException("拉取订阅失败：订阅链接格式不正确（需以 http:// 或 https:// 开头）。");
+        }
+
+        string? raceNote = null;
         try
         {
-            return await GetStringAsync(Client(null), url, ct);
+            var raced = await EndpointRacer.RaceAsync(uri.Host, uri.Port, ct);
+            if (raced is not null)
+            {
+                using var pinned = new HttpClient(EndpointRacer.CreatePinnedHandler(raced.Address))
+                {
+                    Timeout = DirectTimeout,
+                };
+                pinned.DefaultRequestHeaders.UserAgent.ParseAdd(_userAgent);
+                var content = await GetStringAsync(pinned, url, ct);
+                LastFetchDetail = raced.Describe();
+                return content;
+            }
+            raceNote = "所有候选 IP 均不可达";
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            raceNote = Describe(ex);
+        }
+        // 竞速失败说明这个 IP 已经不能用了，别让下一次继续吃缓存
+        EndpointRacer.Invalidate(uri.Host);
+
+        // 兜底：走系统解析的普通直连（竞速本身可能因本机网络异常整体失败）
+        try
+        {
+            var content = await GetStringAsync(Client(null), url, ct);
+            LastFetchDetail = "直连（系统 DNS）";
+            return content;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -66,9 +110,10 @@ public sealed class SubscriptionService
         catch (Exception directFailure)
         {
             var detail = proxyFailure is null
-                ? $"{Describe(directFailure)}。该订阅若需要代理访问，请先启动核心再更新。"
+                ? $"直连失败（多 DNS 解析：{raceNote}；{Describe(directFailure)}）。"
+                  + "该订阅若需要代理访问，请先启动核心再更新。"
                 : $"经核心代理（{endpoint!.Value.Host}:{endpoint.Value.Port}）失败：{Describe(proxyFailure)}；"
-                  + $"直连失败：{Describe(directFailure)}。";
+                  + $"直连失败（多 DNS 解析：{raceNote}；{Describe(directFailure)}）。";
             throw new InvalidOperationException("拉取订阅失败：" + detail, directFailure);
         }
     }
@@ -84,8 +129,20 @@ public sealed class SubscriptionService
     public async Task<(List<NodeEntry> Nodes, List<ProxyGroup> Groups, List<string> Errors)> ImportFromUrlWithGroupsAsync(
         string url, CancellationToken ct = default)
     {
+        var (nodes, groups, _, errors) = await ImportFullAsync(url, ct);
+        return (nodes, groups, errors);
+    }
+
+    /// <summary>
+    /// 完整导入：节点 + 策略组 + 订阅自带的 route/dns 片段。
+    /// 路由片段只有 sing-box 原生 JSON 订阅才有（Clash YAML / 分享链接返回 null）。
+    /// </summary>
+    public async Task<(List<NodeEntry> Nodes, List<ProxyGroup> Groups, Parsing.SubscriptionRouting? Routing, List<string> Errors)>
+        ImportFullAsync(string url, CancellationToken ct = default)
+    {
         var content = await FetchAsync(url, ct);
-        return Parsing.SubscriptionParser.ParseWithGroups(content);
+        var (nodes, groups, errors) = Parsing.SubscriptionParser.ParseWithGroups(content);
+        return (nodes, groups, Parsing.SubscriptionParser.ExtractRouting(content), errors);
     }
 
     /// <summary>

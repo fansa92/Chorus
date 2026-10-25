@@ -62,6 +62,12 @@
                                 <TextBlock Grid.Column="1" Text="策略组" VerticalAlignment="Center" />
                             </Grid>
                         </ListViewItem>
+                        <ListViewItem Tag="rules" Padding="12,9">
+                            <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
+                                <SymbolIcon Symbol="Bullets" />
+                                <TextBlock Grid.Column="1" Text="规则" VerticalAlignment="Center" />
+                            </Grid>
+                        </ListViewItem>
                         <ListViewItem Tag="subscriptions" Padding="12,9">
                             <Grid ColumnDefinitions="Auto,*" ColumnSpacing="12">
                                 <SymbolIcon Symbol="Link" />

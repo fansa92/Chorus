@@ -41,6 +41,11 @@
                 Text="{x:Bind Vm.SubscriptionUserAgent, Mode=TwoWay}" />
             <TextBlock Opacity="0.7" TextWrapping="Wrap"
                        Text="订阅转换服务按 UA 决定返回格式：填 sing-box 返回原生 JSON（含策略组），填 clash-verge/v2.0.0 返回 Clash YAML。" />
+            <ToggleSwitch
+                Header="使用订阅自带的分流规则（规则集 / DNS）"
+                IsOn="{x:Bind Vm.ApplySubscriptionRouting, Mode=TwoWay}" />
+            <TextBlock Opacity="0.7" TextWrapping="Wrap"
+                       Text="开启后，订阅里的 route.rules、route.rule_set 与 dns 会合并进生成的配置（引用不到的条目会自动剔除）。关闭则只用内置的「规则/全局/直连」三种模式。" />
             <TextBox Header="手动粘贴分享链接（每行一条，支持 ss/vmess/vless/trojan/hysteria2/anytls）"
                      Text="{x:Bind Vm.ShareLinks, Mode=TwoWay}"
                      AcceptsReturn="True" Height="110" TextWrapping="Wrap" />

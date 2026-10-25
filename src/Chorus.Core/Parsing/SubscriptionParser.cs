@@ -66,6 +66,40 @@ public static class SubscriptionParser
         return (nodes, errors);
     }
 
+    /// <summary>
+    /// 抽出 sing-box JSON 订阅里的 route（仅 rules / rule_set / final）与 dns 段。
+    /// 非 JSON 内容返回 null。
+    /// </summary>
+    public static SubscriptionRouting? ExtractRouting(string content)
+    {
+        if (string.IsNullOrWhiteSpace(content)) return null;
+        var trimmed = content.Trim();
+        if (!trimmed.StartsWith('{')) return null;
+        try
+        {
+            if (JsonNode.Parse(trimmed) is not JsonObject root) return null;
+
+            string? routeJson = null;
+            if (root["route"] is JsonObject route)
+            {
+                var trimmedRoute = new JsonObject();
+                if (route["rules"] is JsonArray rules) trimmedRoute["rules"] = rules.DeepClone();
+                if (route["rule_set"] is JsonArray ruleSets) trimmedRoute["rule_set"] = ruleSets.DeepClone();
+                if (route["final"] is JsonValue final) trimmedRoute["final"] = final.DeepClone();
+                if (trimmedRoute.Count > 0) routeJson = trimmedRoute.ToJsonString();
+            }
+
+            var dnsJson = (root["dns"] as JsonObject)?.ToJsonString();
+            if (routeJson is null && dnsJson is null) return null;
+            return new SubscriptionRouting(routeJson, dnsJson);
+        }
+        catch
+        {
+            // 订阅内容异常时不影响节点/策略组的解析
+            return null;
+        }
+    }
+
     /// <summary>解析 sing-box JSON 订阅：提取节点与策略组。功能性出站（direct/block/dns）忽略。</summary>
     public static (List<NodeEntry> Nodes, List<ProxyGroup> Groups, List<string> Errors) ParseSingBoxJsonWithGroups(string content)
     {

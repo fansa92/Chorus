@@ -41,10 +41,14 @@ public sealed partial class AppRunner
             var workDir = Path.Combine(AppServices.DataDir, "data");
             Directory.CreateDirectory(workDir);
 
-            var config = ConfigGenerator.Build(settings);
+            var (config, routing) = ConfigGenerator.BuildWithReport(settings);
             await File.WriteAllTextAsync(
                 configPath,
                 config.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
+
+            Log("INFO", routing.Applied
+                ? $"已合并订阅「{routing.SourceName}」的分流规则：{routing.Describe()}"
+                : $"分流规则：{routing.Describe()}");
 
             Log("INFO", "正在校验配置…");
             AppServices.Core.CorePath = corePath;

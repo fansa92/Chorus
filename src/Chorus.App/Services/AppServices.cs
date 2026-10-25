@@ -27,6 +27,7 @@ public static class AppServices
     public static DashboardViewModel DashboardVm { get; private set; } = null!;
     public static SubscriptionsViewModel SubscriptionsVm { get; private set; } = null!;
     public static ProxiesViewModel ProxiesVm { get; private set; } = null!;
+    public static RulesViewModel RulesVm { get; private set; } = null!;
     public static LogsViewModel LogsVm { get; private set; } = null!;
     public static SettingsViewModel SettingsVm { get; private set; } = null!;
 
@@ -56,6 +57,7 @@ public static class AppServices
         DashboardVm = new DashboardViewModel();
         SubscriptionsVm = new SubscriptionsViewModel();
         ProxiesVm = new ProxiesViewModel();
+        RulesVm = new RulesViewModel();
         LogsVm = new LogsViewModel();
         SettingsVm = new SettingsViewModel();
     }

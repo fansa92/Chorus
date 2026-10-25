@@ -74,7 +74,7 @@ public partial class SubscriptionsViewModel : ObservableObject
             var note = ok ? await ApplyAsync() : "";
             Show(
                 ok ? "添加成功" : "添加成功但更新失败",
-                ok ? $"「{entry.Name}」已添加，解析到 {entry.Nodes.Count} 个节点、{entry.Groups.Count} 个策略组。{note}"
+                ok ? $"「{entry.Name}」已添加，解析到 {entry.Nodes.Count} 个节点、{entry.Groups.Count} 个策略组。{Join(message, note)}"
                    : $"「{entry.Name}」已添加，但更新失败：{message}",
                 ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
         }
@@ -117,7 +117,7 @@ public partial class SubscriptionsViewModel : ObservableObject
             var note = ok ? await ApplyAsync() : "";
             Show(
                 ok ? "保存成功" : "保存成功但更新失败",
-                ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组。{note}"
+                ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组。{Join(message, note)}"
                    : $"「{item.Entry.Name}」已保存，但更新失败：{message}",
                 ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
         }
@@ -140,7 +140,7 @@ public partial class SubscriptionsViewModel : ObservableObject
             var note = ok ? await ApplyAsync() : "";
             Show(
                 ok ? "更新成功" : "更新失败",
-                ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组。{note}"
+                ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组。{Join(message, note)}"
                    : message,
                 ok ? InfoBarSeverity.Success : InfoBarSeverity.Error);
         }
@@ -178,7 +178,7 @@ public partial class SubscriptionsViewModel : ObservableObject
             Show(
                 failures.Count == 0 ? "全部更新成功" : "部分更新失败",
                 failures.Count == 0
-                    ? $"{okCount} 个订阅全部更新成功。{note}"
+                    ? $"{okCount} 个订阅全部更新成功。{Join(AppServices.Subscriptions.LastFetchDetail, note)}"
                     : $"成功 {okCount} 个，失败 {failures.Count} 个。首个错误：{failures[0]}",
                 failures.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
         }
@@ -197,17 +197,23 @@ public partial class SubscriptionsViewModel : ObservableObject
         Show("已删除", $"订阅「{item.Entry.Name}」已删除。重启核心后生效。", InfoBarSeverity.Informational);
     }
 
-    /// <summary>下载并解析单个订阅，写回 Entry。返回 (是否成功, 错误信息)。</summary>
+    /// <summary>下载并解析单个订阅，写回 Entry。返回 (是否成功, 提示信息)。</summary>
     private static async Task<(bool Ok, string Message)> UpdateEntryAsync(SubscriptionEntry entry)
     {
         try
         {
-            var (nodes, groups, errors) = await AppServices.Subscriptions.ImportFromUrlWithGroupsAsync(entry.Url);
+            var (nodes, groups, routing, errors) = await AppServices.Subscriptions.ImportFullAsync(entry.Url);
             entry.Nodes = nodes;
             entry.Groups = groups;
+            // 订阅自带的 route/dns 要跟着存下来：它们既决定规则页显示什么，
+            // 也决定生成配置时能不能把规则集合并进去
+            entry.RouteJson = routing?.RouteJson;
+            entry.DnsJson = routing?.DnsJson;
             entry.LastUpdated = DateTimeOffset.Now;
             entry.LastError = errors.Count > 0 ? errors[0] : null;
-            return (true, "");
+            var detail = AppServices.Subscriptions.LastFetchDetail;
+            var routingNote = routing?.HasAny == true ? "（含订阅路由规则）" : "";
+            return (true, detail is null ? routingNote : $"{detail}{routingNote}");
         }
         catch (Exception ex)
         {
@@ -235,6 +241,10 @@ public partial class SubscriptionsViewModel : ObservableObject
             return $"自动重启核心失败（{ex.Message}），请手动重启核心。";
         }
     }
+
+    /// <summary>把若干条提示拼接成一句（跳过空项），避免文案里出现多余空格或空括号。</summary>
+    private static string Join(params string?[] parts) =>
+        string.Join(" ", parts.Where(p => !string.IsNullOrWhiteSpace(p)));
 
     private void Show(string title, string text, InfoBarSeverity severity)
     {

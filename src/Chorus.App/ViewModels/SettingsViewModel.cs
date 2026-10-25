@@ -17,6 +17,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _closeToTray = true;
     [ObservableProperty] private string _logLevel = "info";
     [ObservableProperty] private string _subscriptionUserAgent = SubscriptionService.DefaultUserAgent;
+    [ObservableProperty] private bool _applySubscriptionRouting = true;
     [ObservableProperty] private string _shareLinks = "";
     [ObservableProperty] private int _manualNodeCount;
     [ObservableProperty] private bool _hasMessage;
@@ -49,6 +50,7 @@ public partial class SettingsViewModel : ObservableObject
         _closeToTray = settings.CloseToTray;
         _logLevel = settings.LogLevel;
         _subscriptionUserAgent = settings.SubscriptionUserAgent;
+        _applySubscriptionRouting = settings.ApplySubscriptionRouting;
         _manualNodeCount = settings.Profile.Nodes.Count;
         OnPropertyChanged(string.Empty);
     }
@@ -77,6 +79,7 @@ public partial class SettingsViewModel : ObservableObject
         var agent = SubscriptionUserAgent.Trim();
         settings.SubscriptionUserAgent = agent.Length > 0 ? agent : SubscriptionService.DefaultUserAgent;
         AppServices.Subscriptions.UserAgent = settings.SubscriptionUserAgent;
+        settings.ApplySubscriptionRouting = ApplySubscriptionRouting;
         AppServices.Store.Save(settings);
 
         Show("已保存", "设置已保存。若核心正在运行，重启核心后生效。", InfoBarSeverity.Success);
