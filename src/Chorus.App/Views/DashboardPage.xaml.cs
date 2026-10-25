@@ -44,7 +44,9 @@ public sealed partial class DashboardPage : Page
 
     private async void SystemProxy_Toggled(object sender, RoutedEventArgs e)
     {
-        if (sender is ToggleSwitch toggle)
+        // IsOn 由 VM 驱动变化时也会触发 Toggled，这里只处理用户的实际操作，
+        // 否则「失败回弹」会被当成一次新的切换再写一遍注册表。
+        if (sender is ToggleSwitch toggle && toggle.IsOn != Vm.SystemProxyOn)
             await Vm.ToggleSystemProxyAsync(toggle.IsOn);
     }
 

@@ -39,6 +39,8 @@ public static class AppServices
             Store.Save(Settings);
         }
 
+        CleanupStaleSystemProxy();
+
         Clash = new ClashApiClient();
         Clash.Configure("127.0.0.1", Settings.ClashApiPort, Settings.ClashApiSecret);
         Core = new SingBoxCoreManager();
@@ -49,6 +51,29 @@ public static class AppServices
         ProxiesVm = new ProxiesViewModel();
         LogsVm = new LogsViewModel();
         SettingsVm = new SettingsViewModel();
+    }
+
+    /// <summary>
+    /// 上次进程被强杀或崩溃时，系统代理会残留并指向已经停止的核心（整机断网）。
+    /// 启动阶段把「指向本应用核心」的残留代理关掉，核心起来后会按设置重新开启。
+    /// </summary>
+    private static void CleanupStaleSystemProxy()
+    {
+        try
+        {
+            // 已有另一个实例在跑时，那可能是它在用的代理，绝不能动
+            var others = System.Diagnostics.Process.GetProcessesByName("Chorus.App")
+                .Any(p => p.Id != Environment.ProcessId);
+            if (others) return;
+
+            var expected = $"127.0.0.1:{Settings.MixedPort}";
+            if (SystemProxyManager.IsEnabled && SystemProxyManager.CurrentServer == expected)
+                SystemProxyManager.Disable();
+        }
+        catch
+        {
+            // 清理失败不影响启动
+        }
     }
 
     public static string ResolveCorePath()

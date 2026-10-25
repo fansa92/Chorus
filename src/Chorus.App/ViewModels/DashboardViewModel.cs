@@ -269,22 +269,26 @@ public partial class DashboardViewModel : ObservableObject
     public async Task ToggleSystemProxyAsync(bool on)
     {
         var settings = AppServices.Settings;
-        settings.EnableSystemProxy = on;
-        AppServices.Store.Save(settings);
-
-        if (AppServices.Runner.IsRunning)
+        SystemProxyOn = on; // 先跟随 UI，异常时再回弹，避免开关与真实状态不一致
+        try
         {
-            try
+            if (AppServices.Runner.IsRunning)
             {
                 if (on) SystemProxyManager.Enable(settings.MixedPort);
                 else SystemProxyManager.Disable();
             }
-            catch (Exception ex)
-            {
-                ShowHint("系统代理切换失败：" + ex.Message);
-            }
+
+            settings.EnableSystemProxy = on;
+            AppServices.Store.Save(settings);
+
+            if (on && !AppServices.Runner.IsRunning)
+                ShowHint("核心未运行：系统代理将在核心启动后自动开启");
         }
-        SystemProxyOn = on;
+        catch (Exception ex)
+        {
+            SystemProxyOn = !on; // 回弹开关，别让界面假装已经生效
+            ShowHint("系统代理切换失败：" + ex.Message);
+        }
         await Task.CompletedTask;
     }
 
