@@ -33,10 +33,17 @@ public sealed partial class ProxiesPage : Page
         await Vm.TestAllGroupsAsync();
     }
 
-    /// <summary>组头右侧的「测速」按钮：只测这一组。</summary>
-    private async void TestGroup_Click(object sender, RoutedEventArgs e)
+    /// <summary>点击顶部标签：切换到对应的策略组（一次只展示一个组）。</summary>
+    private void GroupChip_Tapped(object sender, TappedRoutedEventArgs e)
     {
         if (sender is FrameworkElement { Tag: ProxyGroupViewModel group })
+            Vm.SelectGroup(group);
+    }
+
+    /// <summary>只测当前展示的这一组。</summary>
+    private async void TestCurrent_Click(object sender, RoutedEventArgs e)
+    {
+        if (Vm.SelectedGroup is { } group)
             await Vm.TestGroupDelayAsync(group);
     }
 

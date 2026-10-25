@@ -8,8 +8,8 @@ using Microsoft.UI.Xaml.Media;
 namespace Chorus.App.ViewModels;
 
 /// <summary>
-/// 策略组页（参考 Bettbox / FlClash 的 Proxies 宽屏布局）：所有策略组自左向右各占一列，
-/// 列内是卡片式节点列表（名称 / 协议徽标 / 延迟），列内独立垂直滚动。
+/// 策略组页（参考 Bettbox / FlClash 的标签页布局）：顶部是策略组切换标签，
+/// 点标签切换到另一个策略组；下方只渲染当前组，节点以卡片阵列（自适应多列）排布。
 /// </summary>
 public partial class ProxiesViewModel : ObservableObject
 {
@@ -17,6 +17,9 @@ public partial class ProxiesViewModel : ObservableObject
     private readonly List<ProxyGroupViewModel> _allGroups = [];
 
     public ObservableCollection<ProxyGroupViewModel> Groups { get; } = [];
+
+    /// <summary>当前展示的策略组（切换标签时变化）。</summary>
+    [ObservableProperty] private ProxyGroupViewModel? _selectedGroup;
 
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private string _statusText = "";
@@ -26,7 +29,21 @@ public partial class ProxiesViewModel : ObservableObject
 
     [ObservableProperty] private Visibility _emptyVisibility = Visibility.Collapsed;
 
+    /// <summary>当前组内容（阵列）是否可见。</summary>
+    public Visibility ContentVisibility => SelectedGroup is null ? Visibility.Collapsed : Visibility.Visible;
+
     partial void OnSearchTextChanged(string value) => ApplyFilter();
+
+    partial void OnSelectedGroupChanged(ProxyGroupViewModel? value)
+        => OnPropertyChanged(nameof(ContentVisibility));
+
+    /// <summary>切换到指定策略组（标签页切换）。</summary>
+    public void SelectGroup(ProxyGroupViewModel? group)
+    {
+        foreach (var g in _allGroups)
+            g.IsActive = ReferenceEquals(g, group);
+        SelectedGroup = group;
+    }
 
     public async Task RefreshAsync()
     {
@@ -65,6 +82,9 @@ public partial class ProxiesViewModel : ObservableObject
                     .GroupBy(m => (Group: m.Group.Name, m.Name))
                     .ToDictionary(g => g.Key, g => g.First().DelayMs);
 
+                // 记住刷新前停留在哪个策略组标签，重建后按组名回到同一页
+                var previousGroupName = SelectedGroup?.Name;
+
                 _allGroups.Clear();
                 foreach (var info in groupInfos)
                 {
@@ -90,6 +110,9 @@ public partial class ProxiesViewModel : ObservableObject
                     _allGroups.Add(gvm);
                 }
 
+                SelectGroup(previousGroupName is null
+                    ? null
+                    : _allGroups.FirstOrDefault(g => g.Name == previousGroupName));
                 ApplyFilter();
                 StatusText = $"已加载 {_allGroups.Count} 个策略组";
             });
@@ -114,6 +137,11 @@ public partial class ProxiesViewModel : ObservableObject
                 continue; // 搜索时隐藏名称与节点都不匹配的组
             Groups.Add(group);
         }
+
+        // 当前标签被搜索过滤掉时，自动切到列表里的第一个组
+        if (SelectedGroup is null || !Groups.Contains(SelectedGroup))
+            SelectGroup(Groups.FirstOrDefault());
+
         UpdateEmptyVisibility();
     }
 
@@ -190,6 +218,7 @@ public partial class ProxyGroupViewModel : ObservableObject
 {
     private static readonly SolidColorBrush AccentBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3E, 0x8F, 0xE0));
     private static readonly SolidColorBrush AccentBgBrush = new(Windows.UI.Color.FromArgb(0x1F, 0x3E, 0x8F, 0xE0));
+    private static readonly SolidColorBrush ActiveChipBgBrush = new(Windows.UI.Color.FromArgb(0x33, 0x3E, 0x8F, 0xE0));
     private static readonly SolidColorBrush AutoBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x8B, 0x5C, 0xF6));
     private static readonly SolidColorBrush AutoBgBrush = new(Windows.UI.Color.FromArgb(0x1F, 0x8B, 0x5C, 0xF6));
 
@@ -199,16 +228,30 @@ public partial class ProxyGroupViewModel : ObservableObject
     public string RawType { get; }
     public string TypeText { get; }
 
-    /// <summary>
-    /// 是否支持手动切换节点。sing-box 的 Clash API 仅对 Selector 组开放
-    /// PUT /proxies/{name}；URLTest/Fallback 组会返回 400，伪造的 GLOBAL 项返回 404。
-    /// </summary>
+    /// <summary>是否支持手动切换节点。sing-box 的 Clash API 仅对 Selector 组开放
+    /// PUT /proxies/{name}；URLTest/Fallback 组会返回 400，伪造的 GLOBAL 项返回 404。</summary>
     public bool IsSelectable => RawType.Equals("Selector", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>组头右侧的类型徽标（手动 / 自动）。</summary>
     public string TypeBadgeText => IsSelectable ? "手动" : "自动";
     public Brush TypeBadgeBrush => IsSelectable ? AccentBrush : AutoBrush;
     public Brush TypeBadgeBackground => IsSelectable ? AccentBgBrush : AutoBgBrush;
+
+    /// <summary>是否为当前标签页选中的策略组（驱动顶部标签的选中态）。</summary>
+    [ObservableProperty] private bool _isActive;
+
+    public Brush ChipBackground => IsActive ? ActiveChipBgBrush : ThemeBrushes.CardFill;
+    public Brush ChipBorderBrush => IsActive ? AccentBrush : ThemeBrushes.CardStroke;
+    public Brush ChipForeground => IsActive ? AccentBrush : ThemeBrushes.TextPrimary;
+    public Thickness ChipBorderThickness => new(IsActive ? 1.5 : 1);
+
+    partial void OnIsActiveChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ChipBackground));
+        OnPropertyChanged(nameof(ChipBorderBrush));
+        OnPropertyChanged(nameof(ChipForeground));
+        OnPropertyChanged(nameof(ChipBorderThickness));
+    }
 
     [ObservableProperty] private string _selectedName = "";
 
@@ -224,6 +267,7 @@ public partial class ProxyGroupViewModel : ObservableObject
     public ObservableCollection<ProxyMemberViewModel> Members { get; } = [];
 
     public string MemberCountText => $"{Members.Count}";
+    public string MemberCountLabel => $"{Members.Count} 个节点";
 
     public ProxyGroupViewModel(string name, string type)
     {
@@ -261,6 +305,7 @@ public partial class ProxyGroupViewModel : ObservableObject
                     Members.Add(m);
         }
         OnPropertyChanged(nameof(MemberCountText));
+        OnPropertyChanged(nameof(MemberCountLabel));
     }
 
     partial void OnSelectedNameChanged(string value) => OnPropertyChanged(nameof(SubtitleText));
@@ -275,35 +320,6 @@ public partial class ProxyMemberViewModel : ObservableObject
     private static readonly SolidColorBrush GreenBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3B, 0xA5, 0x5D));
     private static readonly SolidColorBrush OrangeBrush = new(Windows.UI.Color.FromArgb(0xFF, 0xD1, 0x8A, 0x2B));
     private static readonly SolidColorBrush RedBrush = new(Windows.UI.Color.FromArgb(0xFF, 0xD1, 0x34, 0x38));
-
-    // 未选中卡片沿用主题的卡片底色/描边（Bettbox CommonCard 的 outlineVariant 风格），
-    // 首次访问时从主题资源取，随深浅主题自动协调。
-    private static Brush? _idleCardBrush;
-    private static Brush? _idleBorderBrush;
-
-    private static Brush IdleCardBrush
-    {
-        get
-        {
-            if (_idleCardBrush is null
-                && Application.Current.Resources.ContainsKey("CardBackgroundFillColorDefaultBrush")
-                && Application.Current.Resources["CardBackgroundFillColorDefaultBrush"] is Brush b)
-                _idleCardBrush = b;
-            return _idleCardBrush ?? TransparentBrush;
-        }
-    }
-
-    private static Brush IdleBorderBrush
-    {
-        get
-        {
-            if (_idleBorderBrush is null
-                && Application.Current.Resources.ContainsKey("CardStrokeColorDefaultBrush")
-                && Application.Current.Resources["CardStrokeColorDefaultBrush"] is Brush b)
-                _idleBorderBrush = b;
-            return _idleBorderBrush ?? TransparentBrush;
-        }
-    }
 
     public ProxyGroupViewModel Group { get; }
     public string Name { get; }
@@ -325,8 +341,8 @@ public partial class ProxyMemberViewModel : ObservableObject
 
     public Visibility SelectedVisibility => IsSelected ? Visibility.Visible : Visibility.Collapsed;
     public Brush CheckBrush => AccentBrush;
-    public Brush CardBackground => IsSelected ? SelectedBgBrush : IdleCardBrush;
-    public Brush CardBorderBrush => IsSelected ? SelectedBorderBrush : IdleBorderBrush;
+    public Brush CardBackground => IsSelected ? SelectedBgBrush : ThemeBrushes.CardFill;
+    public Brush CardBorderBrush => IsSelected ? SelectedBorderBrush : ThemeBrushes.CardStroke;
     public Thickness CardBorderThickness => new(IsSelected ? 1.5 : 1);
 
     public string DelayBadgeText => DelayMs switch
@@ -364,6 +380,36 @@ public partial class ProxyMemberViewModel : ObservableObject
         OnPropertyChanged(nameof(DelayBadgeText));
         OnPropertyChanged(nameof(DelayBrush));
     }
+}
+
+/// <summary>
+/// 主题资源懒取（Bettbox CommonCard 的 outlineVariant 风格）：未选中卡片与标签底色
+/// 沿用主题的卡片底色/描边/主文字色，随深浅主题自动协调。
+/// </summary>
+internal static class ThemeBrushes
+{
+    private static readonly SolidColorBrush Transparent = new(Windows.UI.Color.FromArgb(0, 0, 0, 0));
+    private static readonly SolidColorBrush DefaultText = new(Windows.UI.Color.FromArgb(0xFF, 0x1F, 0x1F, 0x1F));
+
+    private static Brush? _cardFill;
+    private static Brush? _cardStroke;
+    private static Brush? _textPrimary;
+
+    public static Brush CardFill
+        => _cardFill ??= Lookup("CardBackgroundFillColorDefaultBrush", Transparent);
+
+    public static Brush CardStroke
+        => _cardStroke ??= Lookup("CardStrokeColorDefaultBrush", Transparent);
+
+    public static Brush TextPrimary
+        => _textPrimary ??= Lookup("TextFillColorPrimaryBrush", DefaultText);
+
+    private static Brush Lookup(string key, Brush fallback)
+        => Application.Current is { } app
+           && app.Resources.ContainsKey(key)
+           && app.Resources[key] is Brush brush
+            ? brush
+            : fallback;
 }
 
 /// <summary>节点协议类型的展示名与配色。</summary>
