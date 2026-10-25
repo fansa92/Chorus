@@ -24,10 +24,14 @@
 ![订阅](docs/screenshots/subscriptions.png)
 
 **规则** —— 三标签展示真正生成进 `config.json` 的路由规则、规则集与 DNS；条件翻成中文，点行展开原始 JSON。
+
+路由规则：
 ![路由规则](docs/screenshots/rules-route.png)
 
+规则集（远程 `.srs`，支持一键清缓存重下）：
 ![规则集](docs/screenshots/rules-ruleset.png)
 
+DNS 服务器与 DNS 规则：
 ![DNS](docs/screenshots/rules-dns.png)
 
 **日志** —— 核心 stdout 与应用日志合并展示，按来源/级别/模块筛选、关键词搜索，点行展开可看详情、复制、只看此模块。
