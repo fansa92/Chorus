@@ -203,7 +203,10 @@ public partial class ProxiesViewModel : ObservableObject
                 ? _allGroups.FirstOrDefault()
                 : _allGroups.FirstOrDefault(g => g.Name == previousGroupName) ?? _allGroups.FirstOrDefault());
             ApplyFilter();
-            StatusText = $"已加载 {_allGroups.Count} 个策略组 · {proxies.Count} 个出站";
+            // 顺带说明当前用的是哪份配置：多订阅时组名可能一样，看这句才知道换没换
+            var active = AppServices.Settings.ActiveSubscription();
+            var configLabel = active is null ? "全部订阅合并" : $"配置「{active.Name}」";
+            StatusText = $"已加载 {_allGroups.Count} 个策略组 · {proxies.Count} 个出站 · {configLabel}";
         });
         return true;
     }
