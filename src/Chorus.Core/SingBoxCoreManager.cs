@@ -43,6 +43,10 @@ public sealed class SingBoxCoreManager : IDisposable
             CreateNoWindow = true,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            // 核心输出是 UTF-8：不指定的话会按系统 ANSI 代码页（中文 Windows 为 GBK）解码，
+            // 节点名里的中文会变成「娴欐睙」这样的乱码
+            StandardOutputEncoding = System.Text.Encoding.UTF8,
+            StandardErrorEncoding = System.Text.Encoding.UTF8,
         })!;
         _process = process;
         try

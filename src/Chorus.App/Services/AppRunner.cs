@@ -1,18 +1,15 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Chorus.Core;
 using Chorus.Core.ClashApi;
 using Chorus.Core.Configuration;
 using Chorus.Core.Models;
+using Chorus.Core.Parsing;
 
 namespace Chorus.App.Services;
 
 /// <summary>启动/停止编排：生成配置 → 校验 → 拉起核心 → 流量订阅 → 系统代理。</summary>
 public sealed partial class AppRunner
 {
-    [GeneratedRegex(@"^\s*(?<level>INFO|WARN(?:ING)?|ERROR|DEBUG|FATAL)", RegexOptions.IgnoreCase)]
-    private static partial Regex LevelRegex();
-
     private readonly SemaphoreSlim _gate = new(1, 1);
     private CancellationTokenSource? _trafficCts;
     private bool _coreHandlersAttached;
@@ -149,9 +146,9 @@ public sealed partial class AppRunner
 
     private void ForwardCoreLog(string line)
     {
-        var level = LevelRegex().Match(line) is { Success: true } match
-            ? match.Groups["level"].Value.ToUpperInvariant()
-            : "LOG";
+        // 核心输出带 ANSI 颜色与时间戳前缀，先规整再算级别
+        var parsed = CoreLogParser.Parse(line);
+        var level = parsed.Level.Length > 0 ? parsed.Level : "LOG";
         LogReceived?.Invoke(new LogEntry(DateTimeOffset.Now, level, line));
     }
 
@@ -176,7 +173,7 @@ public sealed partial class AppRunner
     }
 
     private void Log(string level, string message) =>
-        LogReceived?.Invoke(new LogEntry(DateTimeOffset.Now, level, message));
+        LogReceived?.Invoke(new LogEntry(DateTimeOffset.Now, level, message, LogSource.App));
 
     private void SafeDisableProxyOnExit(Action action)
     {

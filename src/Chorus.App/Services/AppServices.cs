@@ -47,6 +47,7 @@ public static class AppServices
         Runner = new AppRunner();
 
         // 订阅地址基本都在墙外：核心在运行时经 mixed 端口拉取，未运行时才直连
+        Subscriptions.UserAgent = Settings.SubscriptionUserAgent;
         Subscriptions.ProxyProvider = () =>
             Runner.IsRunning && Settings.MixedPort > 0
                 ? ("127.0.0.1", Settings.MixedPort)

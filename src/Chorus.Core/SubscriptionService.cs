@@ -9,15 +9,23 @@ public sealed class SubscriptionService
     private static readonly TimeSpan DirectTimeout = TimeSpan.FromSeconds(15);
     private static readonly TimeSpan ProxyTimeout = TimeSpan.FromSeconds(60);
 
-    /// <summary>订阅转换服务按 UA 分流：报 Clash 客户端才会返回带 proxy-groups 的完整配置。</summary>
-    private const string UserAgent = "clash-verge/v2.0.0";
+    /// <summary>
+    /// 订阅转换服务按 UA 分流：报 sing-box 才会返回原生 JSON（含 selector/urltest 策略组），
+    /// 报 Clash 客户端返回 Clash YAML。可在设置页修改。
+    /// </summary>
+    public const string DefaultUserAgent = "sing-box";
 
-    // 直连客户端：不跟随系统/环境代理，避免本机残留的代理配置把请求带到别处
-    private static readonly HttpClient DirectHttp = CreateClient(null, DirectTimeout);
+    private readonly object _clientGate = new();
+    private readonly Dictionary<string, HttpClient> _clients = new(StringComparer.Ordinal);
 
-    private static readonly object ProxyGate = new();
-    private HttpClient? _proxyHttp;
-    private string? _proxyKey;
+    private string _userAgent = DefaultUserAgent;
+
+    /// <summary>拉取订阅时使用的 User-Agent（为空回落到 <see cref="DefaultUserAgent"/>）。</summary>
+    public string UserAgent
+    {
+        get => _userAgent;
+        set => _userAgent = string.IsNullOrWhiteSpace(value) ? DefaultUserAgent : value.Trim();
+    }
 
     /// <summary>
     /// 返回核心运行时的本机代理端点（host, port）；核心未运行时可返回 null。
@@ -35,7 +43,7 @@ public sealed class SubscriptionService
         {
             try
             {
-                return await GetStringAsync(ProxyClient(proxy.Host, proxy.Port), url, ct);
+                return await GetStringAsync(Client(proxy), url, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -49,7 +57,7 @@ public sealed class SubscriptionService
 
         try
         {
-            return await GetStringAsync(DirectHttp, url, ct);
+            return await GetStringAsync(Client(null), url, ct);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -80,28 +88,38 @@ public sealed class SubscriptionService
         return Parsing.SubscriptionParser.ParseWithGroups(content);
     }
 
-    private static HttpClient CreateClient((string Host, int Port)? proxy, TimeSpan timeout)
+    /// <summary>
+    /// 按「代理端点 + UA」缓存 HttpClient：直连客户端不跟随系统/环境代理，
+    /// 避免本机残留的代理设置把请求带到别处；UA 变化时重建。
+    /// </summary>
+    private HttpClient Client((string Host, int Port)? proxy)
+    {
+        var key = $"{(proxy is null ? "direct" : $"{proxy.Value.Host}:{proxy.Value.Port}")}|{_userAgent}";
+        lock (_clientGate)
+        {
+            if (_clients.TryGetValue(key, out var cached)) return cached;
+
+            // 只保留当前 UA 的客户端，避免切换 UA 后不停堆积
+            foreach (var staleKey in _clients.Keys.Where(k => !k.EndsWith("|" + _userAgent, StringComparison.Ordinal)).ToList())
+            {
+                _clients[staleKey].Dispose();
+                _clients.Remove(staleKey);
+            }
+
+            var client = CreateClient(proxy, proxy is null ? DirectTimeout : ProxyTimeout, _userAgent);
+            _clients[key] = client;
+            return client;
+        }
+    }
+
+    private static HttpClient CreateClient((string Host, int Port)? proxy, TimeSpan timeout, string userAgent)
     {
         var handler = new HttpClientHandler { UseProxy = proxy is not null };
         if (proxy is { } p)
             handler.Proxy = new WebProxy(p.Host, p.Port);
         var client = new HttpClient(handler) { Timeout = timeout };
-        client.DefaultRequestHeaders.UserAgent.ParseAdd(UserAgent);
+        client.DefaultRequestHeaders.UserAgent.ParseAdd(userAgent);
         return client;
-    }
-
-    /// <summary>代理 HttpClient 按端口缓存，端口变化时重建。</summary>
-    private HttpClient ProxyClient(string host, int port)
-    {
-        var key = $"{host}:{port}";
-        lock (ProxyGate)
-        {
-            if (_proxyHttp is not null && _proxyKey == key) return _proxyHttp;
-            _proxyHttp?.Dispose();
-            _proxyHttp = CreateClient((host, port), ProxyTimeout);
-            _proxyKey = key;
-            return _proxyHttp;
-        }
     }
 
     private static async Task<string> GetStringAsync(HttpClient client, string url, CancellationToken ct)

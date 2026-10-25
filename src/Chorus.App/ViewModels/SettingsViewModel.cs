@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml.Controls;
 using Chorus.App.Services;
+using Chorus.Core;
 using Chorus.Core.Models;
 using Chorus.Core.Parsing;
 
@@ -15,6 +16,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _allowLan;
     [ObservableProperty] private bool _closeToTray = true;
     [ObservableProperty] private string _logLevel = "info";
+    [ObservableProperty] private string _subscriptionUserAgent = SubscriptionService.DefaultUserAgent;
     [ObservableProperty] private string _shareLinks = "";
     [ObservableProperty] private int _manualNodeCount;
     [ObservableProperty] private bool _hasMessage;
@@ -23,6 +25,17 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private InfoBarSeverity _messageSeverity = InfoBarSeverity.Informational;
 
     public string[] LogLevels { get; } = ["debug", "info", "warn", "error"];
+
+    /// <summary>常见订阅 UA：转换服务按 UA 决定返回 sing-box JSON 还是 Clash YAML。</summary>
+    public string[] UserAgents { get; } =
+    [
+        SubscriptionService.DefaultUserAgent,
+        "clash-verge/v2.0.0",
+        "clash.meta",
+        "ClashforWindows/0.20.39",
+        "v2rayN/6.31",
+        "Shadowrocket/2.2.9",
+    ];
 
     public SettingsViewModel() => LoadFrom(AppServices.Settings);
 
@@ -35,6 +48,7 @@ public partial class SettingsViewModel : ObservableObject
         _allowLan = settings.AllowLan;
         _closeToTray = settings.CloseToTray;
         _logLevel = settings.LogLevel;
+        _subscriptionUserAgent = settings.SubscriptionUserAgent;
         _manualNodeCount = settings.Profile.Nodes.Count;
         OnPropertyChanged(string.Empty);
     }
@@ -60,6 +74,9 @@ public partial class SettingsViewModel : ObservableObject
         settings.AllowLan = AllowLan;
         settings.CloseToTray = CloseToTray;
         settings.LogLevel = LogLevel;
+        var agent = SubscriptionUserAgent.Trim();
+        settings.SubscriptionUserAgent = agent.Length > 0 ? agent : SubscriptionService.DefaultUserAgent;
+        AppServices.Subscriptions.UserAgent = settings.SubscriptionUserAgent;
         AppServices.Store.Save(settings);
 
         Show("已保存", "设置已保存。若核心正在运行，重启核心后生效。", InfoBarSeverity.Success);

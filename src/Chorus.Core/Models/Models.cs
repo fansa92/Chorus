@@ -71,6 +71,13 @@ public sealed class AppSettings
     public bool EnableSystemProxy { get; set; }
     public bool CloseToTray { get; set; } = true;
     public string LogLevel { get; set; } = "info";
+
+    /// <summary>
+    /// 拉取订阅时上报的 User-Agent。订阅转换服务按 UA 决定返回格式：
+    /// 报 sing-box 得到原生 JSON 配置（含 selector/urltest 策略组），报 Clash 客户端得到 YAML。
+    /// </summary>
+    public string SubscriptionUserAgent { get; set; } = "sing-box";
+
     public List<SubscriptionEntry> Subscriptions { get; set; } = [];
     public Profile Profile { get; set; } = new();
 

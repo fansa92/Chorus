@@ -196,7 +196,14 @@ public sealed class ProxyInfo
 
 public sealed record TrafficSample(long Up, long Down);
 
-public sealed record LogEntry(DateTimeOffset Time, string Level, string Message);
+/// <summary>日志来源：核心进程输出 / 应用自身（启动、系统代理、订阅等）。</summary>
+public enum LogSource
+{
+    Core,
+    App,
+}
+
+public sealed record LogEntry(DateTimeOffset Time, string Level, string Message, LogSource Source = LogSource.Core);
 
 public static class ClashApiModels
 {

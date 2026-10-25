@@ -35,6 +35,12 @@
             <TextBlock Text="订阅与节点" Style="{StaticResource SubtitleTextBlockStyle}" />
             <InfoBar Severity="Informational" IsClosable="False" IsOpen="True"
                      Message="订阅链接请在左侧「订阅」页管理，支持添加多个订阅并分别更新。" />
+            <TextBox
+                Header="拉取订阅时的 User-Agent"
+                PlaceholderText="sing-box"
+                Text="{x:Bind Vm.SubscriptionUserAgent, Mode=TwoWay}" />
+            <TextBlock Opacity="0.7" TextWrapping="Wrap"
+                       Text="订阅转换服务按 UA 决定返回格式：填 sing-box 返回原生 JSON（含策略组），填 clash-verge/v2.0.0 返回 Clash YAML。" />
             <TextBox Header="手动粘贴分享链接（每行一条，支持 ss/vmess/vless/trojan/hysteria2/anytls）"
                      Text="{x:Bind Vm.ShareLinks, Mode=TwoWay}"
                      AcceptsReturn="True" Height="110" TextWrapping="Wrap" />
