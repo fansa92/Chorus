@@ -33,25 +33,23 @@ public sealed partial class ProxiesPage : Page
         await Vm.TestAllGroupsAsync();
     }
 
-    private async void TestSelectedGroup_Click(object sender, RoutedEventArgs e)
-    {
-        if (Vm.SelectedGroup is not null)
-            await Vm.TestGroupDelayAsync(Vm.SelectedGroup);
-    }
-
     /// <summary>
-    /// 点击横向选择器里的策略组 chip。
+    /// 点击组头：折叠 / 展开该组。
     /// 注意：ItemTemplate 使用 x:Bind 编译期绑定，ItemsRepeater 不会给模板元素
     /// 设置 DataContext（整条祖先链均为 null），因此不能依赖 DataContext 取数据项；
-    /// 改为在 XAML 里用 Tag="{x:Bind}" 把数据项本身绑到 Border.Tag 上取用。
+    /// 改为在 XAML 里用 Tag="{x:Bind}" 把数据项本身绑到元素上取用。
     /// </summary>
-    private void Group_Tapped(object sender, TappedRoutedEventArgs e)
+    private void GroupHeader_Click(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { Tag: ProxyGroupViewModel group }
-            && !ReferenceEquals(group, Vm.SelectedGroup))
-        {
-            Vm.SelectedGroup = group;
-        }
+        if (sender is FrameworkElement { Tag: ProxyGroupViewModel group })
+            Vm.ToggleExpanded(group);
+    }
+
+    /// <summary>组头右侧的「测速」按钮：只测这一组。</summary>
+    private async void TestGroup_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: ProxyGroupViewModel group })
+            await Vm.TestGroupDelayAsync(group);
     }
 
     /// <summary>

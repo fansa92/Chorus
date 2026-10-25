@@ -14,7 +14,9 @@ public sealed class SubscriptionService
     public async Task<string> FetchAsync(string url, CancellationToken ct = default)
     {
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        req.Headers.UserAgent.ParseAdd("chorus/1.0");
+        // 订阅转换服务按 UA 分流：报 Clash 客户端才能拿到带 proxy-groups 的完整配置
+        // （否则通常只返回 Base64 的分享链接列表，策略组信息就丢了）
+        req.Headers.UserAgent.ParseAdd("clash-verge/v2.0.0");
         using var resp = await Http.SendAsync(req, ct);
         resp.EnsureSuccessStatusCode();
         return await resp.Content.ReadAsStringAsync(ct);

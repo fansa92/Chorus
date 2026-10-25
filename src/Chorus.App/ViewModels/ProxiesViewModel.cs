@@ -8,44 +8,25 @@ using Microsoft.UI.Xaml.Media;
 namespace Chorus.App.ViewModels;
 
 /// <summary>
-/// 策略组页（参考 Bettbox / FlClash Proxies 页）：顶部横向策略组选择器，
-/// 下方展示所选组的节点列表；每行显示选中标记、协议类型徽标、名称与延迟。
+/// 策略组页（参考 Bettbox / FlClash 的 Proxies 页）：所有策略组自上而下排列，
+/// 每个组头可折叠，组内是卡片式节点列表（名称 / 协议徽标 / 延迟）。
 /// </summary>
 public partial class ProxiesViewModel : ObservableObject
 {
-    // 所有策略组（含被搜索过滤隐藏的），用于保留选中状态与延迟结果
+    // 所有策略组（含被搜索过滤隐藏的），用于保留折叠状态与测速结果
     private readonly List<ProxyGroupViewModel> _allGroups = [];
 
     public ObservableCollection<ProxyGroupViewModel> Groups { get; } = [];
 
-    [ObservableProperty] private ProxyGroupViewModel? _selectedGroup;
     [ObservableProperty] private string _searchText = "";
     [ObservableProperty] private string _statusText = "";
 
-    public ProxiesViewModel()
-    {
-    }
+    /// <summary>列表为空时的提示文字（核心未运行 / 无匹配）。</summary>
+    [ObservableProperty] private string _emptyText = "核心未运行，启动后点刷新";
+
+    [ObservableProperty] private Visibility _emptyVisibility = Visibility.Collapsed;
 
     partial void OnSearchTextChanged(string value) => ApplyFilter();
-
-    partial void OnSelectedGroupChanged(ProxyGroupViewModel? value)
-    {
-        // 同步横向选择器里各组的选中态视觉
-        foreach (var g in _allGroups)
-            g.IsSelected = ReferenceEquals(g, value);
-        OnPropertyChanged(nameof(SelectedGroupNodes));
-        OnPropertyChanged(nameof(NodesEmptyVisibility));
-        OnPropertyChanged(nameof(HasSelectedGroup));
-    }
-
-    /// <summary>当前选中组展示的节点（搜索过滤后）。</summary>
-    public ObservableCollection<ProxyMemberViewModel>? SelectedGroupNodes => SelectedGroup?.Members;
-
-    public bool HasSelectedGroup => SelectedGroup is not null;
-
-    /// <summary>节点列表空态提示的可见性。</summary>
-    public Visibility NodesEmptyVisibility =>
-        SelectedGroup is null || SelectedGroup.Members.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
 
     public async Task RefreshAsync()
     {
@@ -56,7 +37,8 @@ public partial class ProxiesViewModel : ObservableObject
                 StatusText = "核心未运行";
                 _allGroups.Clear();
                 Groups.Clear();
-                SelectedGroup = null;
+                EmptyText = "核心未运行，启动后点刷新";
+                UpdateEmptyVisibility();
             });
             return;
         }
@@ -73,8 +55,12 @@ public partial class ProxiesViewModel : ObservableObject
 
             Ui.Post(() =>
             {
-                // 记住刷新前的选中组与各组测速结果，刷新后按组名恢复
-                var previousName = SelectedGroup?.Name;
+                // 记住刷新前的折叠状态与各组测速结果，刷新后按组名恢复
+                var previousExpanded = _allGroups
+                    .Where(g => g.IsExpanded)
+                    .Select(g => g.Name)
+                    .ToHashSet(StringComparer.Ordinal);
+                var hadGroups = _allGroups.Count > 0;
                 var oldDelays = _allGroups
                     .SelectMany(g => g.AllMembers)
                     .Where(m => m.DelayMs.HasValue)
@@ -103,14 +89,12 @@ public partial class ProxiesViewModel : ObservableObject
                         return member;
                     }).ToList();
                     gvm.SetMembers(members);
+                    // 首次加载默认展开第一个组；之后沿用刷新前的折叠状态
+                    gvm.IsExpanded = hadGroups ? previousExpanded.Contains(gvm.Name) : _allGroups.Count == 0;
                     _allGroups.Add(gvm);
                 }
 
-                // 先恢复选中组，再应用搜索过滤
-                SelectedGroup = _allGroups.FirstOrDefault(g => g.Name == previousName);
                 ApplyFilter();
-                if (SelectedGroup is null)
-                    SelectedGroup = Groups.FirstOrDefault();
                 StatusText = $"已加载 {_allGroups.Count} 个策略组";
             });
         }
@@ -120,7 +104,7 @@ public partial class ProxiesViewModel : ObservableObject
         }
     }
 
-    /// <summary>按搜索词过滤节点与组；无搜索词时展示全部组。</summary>
+    /// <summary>按搜索词过滤组与组内节点；有匹配的组自动展开。</summary>
     private void ApplyFilter()
     {
         var search = SearchText.Trim();
@@ -132,28 +116,30 @@ public partial class ProxiesViewModel : ObservableObject
                 && group.Members.Count == 0
                 && !group.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
                 continue; // 搜索时隐藏名称与节点都不匹配的组
+            if (search.Length > 0 && group.Members.Count > 0)
+                group.IsExpanded = true; // 有命中的节点就展开，省得用户再点一次
             Groups.Add(group);
         }
-
-        // 选中逻辑：搜索时优先停留在仍有匹配的组；否则保持当前选中（若仍可见），否则选第一个
-        ProxyGroupViewModel? target;
-        if (search.Length > 0)
-        {
-            target = SelectedGroup is not null && SelectedGroup.Members.Count > 0 && Groups.Contains(SelectedGroup)
-                ? SelectedGroup
-                : Groups.FirstOrDefault(g => g.Members.Count > 0);
-        }
-        else
-        {
-            target = SelectedGroup is not null && Groups.Contains(SelectedGroup)
-                ? SelectedGroup
-                : Groups.FirstOrDefault();
-        }
-        if (!ReferenceEquals(target, SelectedGroup))
-            SelectedGroup = target;
-        else
-            OnPropertyChanged(nameof(NodesEmptyVisibility)); // 过滤可能改变空态
+        UpdateEmptyVisibility();
     }
+
+    private void UpdateEmptyVisibility()
+    {
+        if (Groups.Count == 0)
+        {
+            EmptyVisibility = Visibility.Visible;
+            EmptyText = string.IsNullOrWhiteSpace(SearchText)
+                ? (AppServices.Runner.IsRunning ? "没有加载到策略组，试试刷新" : "核心未运行，启动后点刷新")
+                : "没有匹配的节点或策略组";
+        }
+        else
+        {
+            EmptyVisibility = Visibility.Collapsed;
+        }
+    }
+
+    /// <summary>展开/折叠一个策略组。</summary>
+    public void ToggleExpanded(ProxyGroupViewModel group) => group.IsExpanded = !group.IsExpanded;
 
     /// <summary>在策略组里选中一个成员（节点或嵌套的策略组）。</summary>
     public async Task SelectAsync(ProxyGroupViewModel group, ProxyMemberViewModel member)
@@ -204,7 +190,6 @@ public partial class ProxiesViewModel : ObservableObject
 
     public async Task TestAllGroupsAsync()
     {
-        // 遍历全部组（不受当前搜索过滤影响）
         foreach (var group in _allGroups.ToList())
             await TestGroupDelayAsync(group);
     }
@@ -212,11 +197,10 @@ public partial class ProxiesViewModel : ObservableObject
 
 public partial class ProxyGroupViewModel : ObservableObject
 {
-    private static readonly SolidColorBrush TransparentBrush = new(Windows.UI.Color.FromArgb(0, 0, 0, 0));
-    private static readonly SolidColorBrush SelectedBgBrush = new(Windows.UI.Color.FromArgb(0x1A, 0x3E, 0x8F, 0xE0));
-    private static readonly SolidColorBrush SelectedBorderBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3E, 0x8F, 0xE0));
     private static readonly SolidColorBrush AccentBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3E, 0x8F, 0xE0));
-    private static readonly SolidColorBrush GrayBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x9B, 0x9B, 0x9B));
+    private static readonly SolidColorBrush AccentBgBrush = new(Windows.UI.Color.FromArgb(0x1F, 0x3E, 0x8F, 0xE0));
+    private static readonly SolidColorBrush AutoBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x8B, 0x5C, 0xF6));
+    private static readonly SolidColorBrush AutoBgBrush = new(Windows.UI.Color.FromArgb(0x1F, 0x8B, 0x5C, 0xF6));
 
     private readonly List<ProxyMemberViewModel> _source = [];
 
@@ -230,10 +214,23 @@ public partial class ProxyGroupViewModel : ObservableObject
     /// </summary>
     public bool IsSelectable => RawType.Equals("Selector", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>该组是否为横向选择器中当前选中的组。</summary>
-    [ObservableProperty] private bool _isSelected;
+    /// <summary>组头右侧的类型徽标（手动 / 自动）。</summary>
+    public string TypeBadgeText => IsSelectable ? "手动" : "自动";
+    public Brush TypeBadgeBrush => IsSelectable ? AccentBrush : AutoBrush;
+    public Brush TypeBadgeBackground => IsSelectable ? AccentBgBrush : AutoBgBrush;
 
+    [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private string _selectedName = "";
+
+    /// <summary>组头下方的说明：类型 + 当前生效节点。</summary>
+    public string SubtitleText => SelectedName.Length == 0
+        ? TypeText
+        : $"{TypeText} · {SelectedName}";
+
+    public Visibility MembersVisibility => IsExpanded ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>ChevronDown（展开）/ ChevronRight（折叠）。</summary>
+    public string ExpandGlyph => IsExpanded ? "\uE70D" : "\uE76C";
 
     /// <summary>全部成员（未过滤）。</summary>
     public ObservableCollection<ProxyMemberViewModel> AllMembers { get; } = [];
@@ -241,16 +238,7 @@ public partial class ProxyGroupViewModel : ObservableObject
     /// <summary>当前展示的成员（搜索过滤后）。</summary>
     public ObservableCollection<ProxyMemberViewModel> Members { get; } = [];
 
-    public string MemberCountText => $"{Members.Count} 节点";
-
-    public string SubtitleText => SelectedName.Length == 0
-        ? TypeText
-        : $"{TypeText} · {SelectedName}";
-
-    // ---- 横向选择器 chip 的选中态视觉 ----
-    public Brush ChipBackground => IsSelected ? SelectedBgBrush : TransparentBrush;
-    public Brush ChipBorderBrush => IsSelected ? SelectedBorderBrush : TransparentBrush;
-    public Brush ChipDotBrush => IsSelected ? AccentBrush : GrayBrush;
+    public string MemberCountText => $"{Members.Count}";
 
     public ProxyGroupViewModel(string name, string type)
     {
@@ -260,7 +248,7 @@ public partial class ProxyGroupViewModel : ObservableObject
         {
             "Selector" or "selector" => "手动选择",
             "URLTest" or "urltest" => "自动测速",
-            "Fallback" => "故障转移",
+            "Fallback" or "fallback" => "故障转移",
             _ => type,
         };
     }
@@ -290,11 +278,10 @@ public partial class ProxyGroupViewModel : ObservableObject
         OnPropertyChanged(nameof(MemberCountText));
     }
 
-    partial void OnIsSelectedChanged(bool value)
+    partial void OnIsExpandedChanged(bool value)
     {
-        OnPropertyChanged(nameof(ChipBackground));
-        OnPropertyChanged(nameof(ChipBorderBrush));
-        OnPropertyChanged(nameof(ChipDotBrush));
+        OnPropertyChanged(nameof(MembersVisibility));
+        OnPropertyChanged(nameof(ExpandGlyph));
     }
 
     partial void OnSelectedNameChanged(string value) => OnPropertyChanged(nameof(SubtitleText));
@@ -303,7 +290,6 @@ public partial class ProxyGroupViewModel : ObservableObject
 public partial class ProxyMemberViewModel : ObservableObject
 {
     private static readonly SolidColorBrush TransparentBrush = new(Windows.UI.Color.FromArgb(0, 0, 0, 0));
-    private static readonly SolidColorBrush WhiteBrush = new(Windows.UI.Color.FromArgb(0xFF, 0xFF, 0xFF, 0xFF));
     private static readonly SolidColorBrush SelectedBgBrush = new(Windows.UI.Color.FromArgb(0x26, 0x3E, 0x8F, 0xE0));
     private static readonly SolidColorBrush SelectedBorderBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3E, 0x8F, 0xE0));
     private static readonly SolidColorBrush AccentBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3E, 0x8F, 0xE0));

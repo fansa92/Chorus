@@ -111,7 +111,9 @@ public static partial class ConfigGenerator
                 ["servers"] = new JsonArray
                 {
                     new JsonObject { ["type"] = "https", ["tag"] = "dns-proxy", ["server"] = "8.8.8.8", ["detour"] = SelectGroupTag },
-                    new JsonObject { ["type"] = "local", ["tag"] = "dns-direct", ["detour"] = "direct" },
+                    // 本地 DNS 不能带 detour："detour to an empty direct outbound makes no sense"
+                    // 会让 sing-box 在解析节点域名时直接失败
+                    new JsonObject { ["type"] = "local", ["tag"] = "dns-direct" },
                 },
                 ["final"] = "dns-proxy",
             },

@@ -29,6 +29,10 @@ public static class SubscriptionParser
         if (content.StartsWith('{') || content.StartsWith('['))
             return ParseSingBoxJsonWithGroups(content);
 
+        // Clash / Clash Meta 订阅（proxies + proxy-groups）：策略组随节点一起带出来
+        if (ClashYamlParser.LooksLikeClash(content))
+            return ClashYamlParser.Parse(content);
+
         var lines = SplitLines(content);
         if (!lines.Any(IsShareLink))
         {
@@ -88,7 +92,7 @@ public static class SubscriptionParser
                 var type = GetString(outbound, "type")?.ToLowerInvariant();
                 // 功能性出站（直连/拦截/DNS）忽略；selector/urltest 提取为策略组
                 if (type is "direct" or "block" or "dns") continue;
-                if (type is "selector" or "urltest")
+                if (type is "selector" or "urltest" or "fallback")
                 {
                     if (FromGroup(outbound, type) is { } group)
                         groups.Add(group);
@@ -120,7 +124,8 @@ public static class SubscriptionParser
         return new ProxyGroup
         {
             Name = name,
-            Type = type,
+            // 渲染层只有 selector / urltest 两种：fallback 归到 urltest（自动挑可用节点）
+            Type = type == "selector" ? "selector" : "urltest",
             Members = members,
             Default = GetString(o, "default"),
             Url = GetString(o, "url"),
