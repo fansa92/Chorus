@@ -83,7 +83,8 @@
                 Title="{x:Bind Vm.MessageTitle}"
                 Message="{x:Bind Vm.MessageText}"
                 Severity="{x:Bind Vm.MessageSeverity}"
-                IsClosable="False" />
+                IsClosable="True"
+                Closed="Message_Closed" />
 
             <!-- ===== 网络 ===== -->
             <TextBlock Text="网络" Style="{StaticResource SectionHeaderStyle}" Margin="2,22,0,8" />
@@ -252,8 +253,19 @@
                 </StackPanel>
             </Border>
 
-            <TextBlock Style="{StaticResource SectionHintStyle}" Margin="2,16,0,0"
-                       Text="设置保存在 %LOCALAPPDATA%\Chorus\settings.json，不在安装目录里。" />
+            <!-- ===== 页脚：版本号 ===== -->
+            <Border Margin="2,26,0,0" Padding="0,14,0,0"
+                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                    BorderThickness="0,1,0,0">
+                <StackPanel Spacing="3">
+                    <TextBlock Text="{x:Bind Vm.VersionLine, Mode=OneWay}" FontSize="12"
+                               HorizontalAlignment="Center"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Style="{StaticResource SectionHintStyle}" HorizontalAlignment="Center"
+                               TextAlignment="Center" Margin="0"
+                               Text="设置保存在 %LOCALAPPDATA%\Chorus\settings.json，不在安装目录里。" />
+                </StackPanel>
+            </Border>
         </StackPanel>
         </Grid>
     </ScrollViewer>

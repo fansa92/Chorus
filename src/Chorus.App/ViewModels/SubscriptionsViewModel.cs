@@ -33,7 +33,14 @@ public partial class SubscriptionsViewModel : ObservableObject
     /// <summary>正在更新的订阅个数（用于顶部「全部更新」按钮的进度与禁用）。</summary>
     [ObservableProperty] private int _updatingCount;
 
-    public SubscriptionsViewModel() => Reload();
+    /// <summary>提示条几秒后自己收掉（Bettbox 的 toast 也是这个行为）。</summary>
+    private readonly AutoHide _messageHide;
+
+    public SubscriptionsViewModel()
+    {
+        _messageHide = new AutoHide(ClearMessage);
+        Reload();
+    }
 
     // ---------- 顶部摘要 ----------
     public string SummaryText
@@ -436,11 +443,21 @@ public partial class SubscriptionsViewModel : ObservableObject
         MessageText = text;
         MessageSeverity = severity;
         HasMessage = true;
+        _messageHide.Schedule(severity switch
+        {
+            InfoBarSeverity.Error => AutoHide.LongDelay,
+            InfoBarSeverity.Warning => AutoHide.WarnDelay,
+            _ => AutoHide.ShortDelay,
+        });
     }
+
+    /// <summary>手动关闭提示条（也算取消倒计时）。</summary>
+    public void DismissMessage() => ClearMessage();
 
     /// <summary>收起提示条。更新成功不再提示，顺手把上一次残留的成功/信息条也收掉。</summary>
     private void ClearMessage()
     {
+        _messageHide.Cancel();
         if (!HasMessage) return;
         HasMessage = false;
         MessageTitle = "";

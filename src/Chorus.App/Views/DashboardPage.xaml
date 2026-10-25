@@ -6,6 +6,31 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     x:DefaultBindMode="OneWay">
 
+    <Page.Resources>
+        <!-- 卡片排布参考 Bettbox 首页：同尺寸的圆角小卡片拼成网格，
+             标题小字在左上，主数值大号，底下留一条走势曲线 -->
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="16,13,16,13" />
+            <Setter Property="MinHeight" Value="148" />
+        </Style>
+        <Style x:Key="CardTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Style>
+        <Style x:Key="CardCaptionStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}" />
+        </Style>
+        <Style x:Key="CardValueStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="22" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+    </Page.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -26,10 +51,16 @@
                 Title="错误"
                 Message="{x:Bind Vm.ErrorMessage}"
                 Severity="Error"
-                IsClosable="False" />
+                IsClosable="True"
+                Closed="Error_Closed" />
         </StackPanel>
 
-        <ScrollViewer Grid.Row="1" Padding="24,12,24,24">
+        <!-- HorizontalScrollMode 必须关掉，否则 ScrollViewer 按无限宽测量内容，卡片会缩成内容宽度 -->
+        <ScrollViewer Grid.Row="1"
+                      Padding="24,12,24,24"
+                      HorizontalScrollMode="Disabled"
+                      HorizontalScrollBarVisibility="Disabled"
+                      VerticalScrollBarVisibility="Auto">
             <Grid ColumnSpacing="10" RowSpacing="10">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="*" MinWidth="232" />
@@ -39,112 +70,158 @@
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
-                <!-- 运行开关（点击卡片启停核心） -->
-                <Border
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="16,14,16,14"
-                    MinHeight="146"
-                    Tapped="StartCard_Tapped">
+                <!-- ===== 运行开关（点击卡片启停核心） ===== -->
+                <Border Style="{StaticResource CardStyle}" Tapped="StartCard_Tapped">
                     <Grid RowDefinitions="Auto,*,Auto">
                         <StackPanel Orientation="Horizontal" Spacing="8">
                             <FontIcon Glyph="&#xE7E8;" FontSize="14"
                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                       VerticalAlignment="Center" />
-                            <TextBlock Text="运行" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                            <TextBlock Text="运行" Style="{StaticResource CardTitleStyle}"
                                        VerticalAlignment="Center" />
                         </StackPanel>
                         <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="2">
-                            <TextBlock Text="{x:Bind Vm.StatusText}" FontSize="22" FontWeight="SemiBold" />
+                            <TextBlock Text="{x:Bind Vm.StatusText}" Style="{StaticResource CardValueStyle}" />
                             <TextBlock Text="{x:Bind Vm.RunTimeText}" FontSize="14"
                                        Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
                         <TextBlock Grid.Row="2" FontSize="12" Opacity="0.7"
-                                   Text="{x:Bind Vm.StartHint, Mode=OneWay}" />
+                                   Text="{x:Bind Vm.StartHint}" />
                     </Grid>
                 </Border>
 
-                <!-- 实时网速 -->
-                <Border
-                    Grid.Column="1"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="16,14,16,12"
-                    MinHeight="146">
-                    <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto">
-                        <TextBlock Text="实时网速" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center">
-                            <FontIcon Glyph="&#xE74A;" FontSize="12" Foreground="#FF3BA55D" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Text="上传" Margin="8,0,0,0" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="2" Text="{x:Bind Vm.UpSpeedText}" FontWeight="SemiBold"
+                <!-- ===== 流量统计（实时速度 + 累计流量 + 走势曲线） ===== -->
+                <Border Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource CardStyle}">
+                    <Grid RowDefinitions="Auto,Auto,*,Auto">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE9D9;" FontSize="14"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                          VerticalAlignment="Center" />
+                                <TextBlock Text="流量统计" Style="{StaticResource CardTitleStyle}"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="1" Text="每秒刷新" Style="{StaticResource CardCaptionStyle}"
                                        VerticalAlignment="Center" />
                         </Grid>
-                        <ProgressBar Grid.Row="2" Height="3" Margin="0,2,0,0"
-                                     Minimum="0" Maximum="1"
-                                     Value="{x:Bind Vm.UpBarRatio, Mode=OneWay}" />
-                        <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" VerticalAlignment="Center" Margin="0,6,0,0">
-                            <FontIcon Glyph="&#xE74B;" FontSize="12" Foreground="#FF3E8FE0" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Text="下载" Margin="8,0,0,0" FontSize="12"
-                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="2" Text="{x:Bind Vm.DownSpeedText}" FontWeight="SemiBold"
-                                       VerticalAlignment="Center" />
+
+                        <Grid Grid.Row="1" ColumnDefinitions="*,*" Margin="0,8,0,0">
+                            <StackPanel Spacing="2">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE74B;" FontSize="12" Foreground="#FF3E8FE0"
+                                              VerticalAlignment="Center" />
+                                    <TextBlock Text="下载" Style="{StaticResource CardCaptionStyle}"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Text="{x:Bind Vm.DownSpeedText}" FontSize="22" FontWeight="SemiBold" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="2">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <FontIcon Glyph="&#xE74A;" FontSize="12" Foreground="#FF3BA55D"
+                                              VerticalAlignment="Center" />
+                                    <TextBlock Text="上传" Style="{StaticResource CardCaptionStyle}"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Text="{x:Bind Vm.UpSpeedText}" FontSize="22" FontWeight="SemiBold" />
+                            </StackPanel>
                         </Grid>
-                        <ProgressBar Grid.Row="4" Height="3" Margin="0,2,0,0"
-                                     Minimum="0" Maximum="1"
-                                     Value="{x:Bind Vm.DownBarRatio, Mode=OneWay}" />
-                        <Canvas x:Name="SpeedCanvas" Grid.Row="5" Height="34" Margin="0,8,0,0">
+
+                        <Canvas x:Name="SpeedCanvas" Grid.Row="2" Height="46" Margin="0,8,0,0">
                             <Polyline x:Name="UpSpeedLine" Stroke="#FF3BA55D" StrokeThickness="1.2" Opacity="0.85" />
                             <Polyline x:Name="DownSpeedLine" Stroke="#FF3E8FE0" StrokeThickness="1.2" Opacity="0.85" />
                         </Canvas>
+
+                        <TextBlock Grid.Row="3" Margin="0,6,0,0"
+                                   Text="{x:Bind Vm.TotalTrafficText, Mode=OneWay}"
+                                   Style="{StaticResource CardCaptionStyle}" />
                     </Grid>
                 </Border>
 
-                <!-- 累计流量 -->
-                <Border
-                    Grid.Column="2"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="16,14,16,14"
-                    MinHeight="146">
-                    <Grid RowDefinitions="Auto,*,*">
-                        <TextBlock Text="累计流量" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
-                        <Grid Grid.Row="1" ColumnDefinitions="Auto,*" VerticalAlignment="Center">
-                            <FontIcon Glyph="&#xE74A;" FontSize="12" Foreground="#FF3BA55D" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Text="{x:Bind Vm.TotalUpText}" FontSize="20" FontWeight="SemiBold"
-                                       Margin="8,0,0,0" VerticalAlignment="Center" />
+                <!-- ===== 内核内存 ===== -->
+                <Border Grid.Row="1" Style="{StaticResource CardStyle}">
+                    <Grid RowDefinitions="Auto,Auto,*,Auto">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE950;" FontSize="14"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                      VerticalAlignment="Center" />
+                            <TextBlock Text="内核内存" Style="{StaticResource CardTitleStyle}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Margin="0,8,0,0" Spacing="2">
+                            <TextBlock Text="{x:Bind Vm.MemoryText, Mode=OneWay}" Style="{StaticResource CardValueStyle}" />
+                            <TextBlock Text="{x:Bind Vm.MemoryDetailText, Mode=OneWay}"
+                                       Style="{StaticResource CardCaptionStyle}" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <Canvas x:Name="MemoryCanvas" Grid.Row="2" Height="26" Margin="0,6,0,0">
+                            <Polyline x:Name="MemoryLine" Stroke="#FFB07CE8" StrokeThickness="1.2" Opacity="0.9" />
+                        </Canvas>
+                        <TextBlock Grid.Row="3" Text="核心进程工作集 · 每 2 秒采样"
+                                   Style="{StaticResource CardCaptionStyle}" />
+                    </Grid>
+                </Border>
+
+                <!-- ===== 网络检测（出口 IP / 地区 / 运营商 / 延迟） ===== -->
+                <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource CardStyle}">
+                    <Grid RowDefinitions="Auto,Auto,Auto">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE968;" FontSize="14"
+                                          Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                          VerticalAlignment="Center" />
+                                <TextBlock Text="网络检测" Style="{StaticResource CardTitleStyle}"
+                                           VerticalAlignment="Center" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Content="重新检测" FontSize="12" Padding="10,3"
+                                    Click="Detect_Click"
+                                    IsEnabled="{x:Bind Vm.CanDetect, Mode=OneWay}" />
                         </Grid>
-                        <Grid Grid.Row="2" ColumnDefinitions="Auto,*" VerticalAlignment="Center">
-                            <FontIcon Glyph="&#xE74B;" FontSize="12" Foreground="#FF3E8FE0" VerticalAlignment="Center" />
-                            <TextBlock Grid.Column="1" Text="{x:Bind Vm.TotalDownText}" FontSize="20" FontWeight="SemiBold"
-                                       Margin="8,0,0,0" VerticalAlignment="Center" />
+
+                        <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="12" Margin="0,10,0,0">
+                            <FontIcon Glyph="&#xE774;" FontSize="26"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                      VerticalAlignment="Center" />
+                            <StackPanel Grid.Column="1" Spacing="1">
+                                <TextBlock Text="{x:Bind Vm.IpText, Mode=OneWay}" FontSize="18" FontWeight="SemiBold"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind Vm.LocationText, Mode=OneWay}" FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind Vm.IspText, Mode=OneWay}" Style="{StaticResource CardCaptionStyle}"
+                                           TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                        </Grid>
+
+                        <Grid Grid.Row="2" ColumnDefinitions="Auto,Auto,*" ColumnSpacing="20" Margin="0,10,0,0">
+                            <StackPanel Spacing="1">
+                                <TextBlock Text="延迟" Style="{StaticResource CardCaptionStyle}" />
+                                <TextBlock Text="{x:Bind Vm.LatencyText, Mode=OneWay}" FontSize="16" FontWeight="SemiBold"
+                                           Foreground="{x:Bind Vm.LatencyBrush, Mode=OneWay}" />
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="1">
+                                <TextBlock Text="检测时间" Style="{StaticResource CardCaptionStyle}" />
+                                <TextBlock Text="{x:Bind Vm.LastDetectText, Mode=OneWay}" FontSize="16" />
+                            </StackPanel>
+                            <TextBlock Grid.Column="2" Text="{x:Bind Vm.DetectStatusText, Mode=OneWay}"
+                                       Style="{StaticResource CardCaptionStyle}"
+                                       HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                       TextWrapping="Wrap" TextAlignment="Right" />
                         </Grid>
                     </Grid>
                 </Border>
 
-                <!-- 出站模式 -->
-                <Border
-                    Grid.Row="1"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="16,14,16,14"
-                    MinHeight="146">
+                <!-- ===== 出站模式 ===== -->
+                <Border Grid.Row="2" Style="{StaticResource CardStyle}">
                     <Grid RowDefinitions="Auto,*">
-                        <TextBlock Text="出站模式" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE81E;" FontSize="14"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                      VerticalAlignment="Center" />
+                            <TextBlock Text="出站模式" Style="{StaticResource CardTitleStyle}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
                         <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="0">
                             <RadioButton Content="规则（按分流规则）" Tag="rule" GroupName="mode"
                                          IsEnabled="{x:Bind Vm.Running}"
@@ -162,18 +239,16 @@
                     </Grid>
                 </Border>
 
-                <!-- 活动连接 -->
-                <Border
-                    Grid.Row="1" Grid.Column="1"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="16,14,16,14"
-                    MinHeight="146">
+                <!-- ===== 活动连接 ===== -->
+                <Border Grid.Row="2" Grid.Column="1" Style="{StaticResource CardStyle}">
                     <Grid RowDefinitions="Auto,*,Auto">
-                        <TextBlock Text="活动连接" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE71B;" FontSize="14"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                      VerticalAlignment="Center" />
+                            <TextBlock Text="活动连接" Style="{StaticResource CardTitleStyle}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
                         <StackPanel Grid.Row="1" VerticalAlignment="Center">
                             <TextBlock Text="{x:Bind Vm.ConnectionCount}" FontSize="26" FontWeight="SemiBold" />
                             <TextBlock Text="个连接正在活动" FontSize="12" Opacity="0.7" />
@@ -184,18 +259,16 @@
                     </Grid>
                 </Border>
 
-                <!-- 快捷开关 -->
-                <Border
-                    Grid.Row="1" Grid.Column="2"
-                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                    BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                    BorderThickness="1"
-                    CornerRadius="8"
-                    Padding="16,14,16,14"
-                    MinHeight="146">
+                <!-- ===== 快捷开关 ===== -->
+                <Border Grid.Row="2" Grid.Column="2" Style="{StaticResource CardStyle}">
                     <Grid RowDefinitions="Auto,*">
-                        <TextBlock Text="快捷开关" FontSize="12"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE713;" FontSize="14"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                      VerticalAlignment="Center" />
+                            <TextBlock Text="快捷开关" Style="{StaticResource CardTitleStyle}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
                         <StackPanel Grid.Row="1" VerticalAlignment="Center" Spacing="6">
                             <Grid ColumnDefinitions="*,Auto">
                                 <TextBlock Text="系统代理" VerticalAlignment="Center" />

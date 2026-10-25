@@ -13,6 +13,25 @@ public sealed class SingBoxCoreManager : IDisposable
 
     public bool IsRunning => _process is { HasExited: false };
 
+    /// <summary>
+    /// 核心进程当前占用的内存（工作集，字节）。核心没在跑时返回 0。
+    /// 外部进程拿不到 Go 侧的内存统计，直接读进程工作集最稳。
+    /// </summary>
+    public long GetMemoryUsage()
+    {
+        try
+        {
+            var process = _process;
+            if (process is null) return 0;
+            process.Refresh();
+            return process.HasExited ? 0 : process.WorkingSet64;
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
     public event Action<string>? LogReceived;
     public event Action<int?>? Exited;
 

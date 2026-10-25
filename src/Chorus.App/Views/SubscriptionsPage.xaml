@@ -31,7 +31,8 @@
                 Title="{x:Bind Vm.MessageTitle, Mode=OneWay}"
                 Message="{x:Bind Vm.MessageText, Mode=OneWay}"
                 Severity="{x:Bind Vm.MessageSeverity, Mode=OneWay}"
-                IsClosable="False" />
+                IsClosable="True"
+                Closed="Message_Closed" />
             <TextBlock Text="{x:Bind Vm.SummaryText, Mode=OneWay}"
                        Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
             <TextBlock Text="{x:Bind Vm.ActiveHintText, Mode=OneWay}"

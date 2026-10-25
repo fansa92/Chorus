@@ -163,6 +163,8 @@ public sealed partial class SettingsPage : Page
         return result;
     }
 
+    private void Message_Closed(InfoBar sender, InfoBarClosedEventArgs args) => Vm.DismissMessage();
+
     private static TextBlock Hint(string text) => new()
     {
         Text = text,

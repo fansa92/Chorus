@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Microsoft.UI.Xaml.Controls;
 using Chorus.App.Services;
@@ -33,6 +34,12 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>回填设置或失败回弹时压住 setter 里的写盘/生效逻辑。</summary>
     private bool _suppress;
 
+    private readonly AutoHide _messageHide;
+
+    /// <summary>页面底部的版本号：应用取发布时注入的版本（git tag），核心取 sing-box 自报版本。</summary>
+    [ObservableProperty] private string _appVersion = AppInfo.Version;
+    [ObservableProperty] private string _coreVersionText = "";
+
     public string[] LogLevels { get; } = ["debug", "info", "warn", "error"];
 
     /// <summary>常见订阅 UA：转换服务按 UA 决定返回 sing-box JSON 还是 Clash YAML。</summary>
@@ -53,7 +60,40 @@ public partial class SettingsViewModel : ObservableObject
         ? SubscriptionService.DefaultUserAgent
         : SubscriptionUserAgent;
 
-    public SettingsViewModel() => LoadFrom(AppServices.Settings);
+    /// <summary>底部版本行：Chorus 版本（来自发布 tag）+ 核心版本（核心在磁盘上才读得到）。</summary>
+    public string VersionLine => string.IsNullOrWhiteSpace(CoreVersionText)
+        ? $"Chorus {AppVersion}"
+        : $"Chorus {AppVersion} · sing-box {CoreVersionText}";
+
+    public SettingsViewModel()
+    {
+        _messageHide = new AutoHide(ClearMessage);
+        LoadFrom(AppServices.Settings);
+        _ = LoadCoreVersionAsync();
+    }
+
+    /// <summary>问一下 sing-box.exe 自己的版本号（`sing-box version` 的第一行）。</summary>
+    private async Task LoadCoreVersionAsync()
+    {
+        var path = AppServices.ResolveCorePath();
+        if (!File.Exists(path))
+        {
+            CoreVersionText = "未找到核心";
+            return;
+        }
+
+        try
+        {
+            AppServices.Core.CorePath = path;
+            var text = await AppServices.Core.GetVersionAsync();
+            var match = Regex.Match(text, @"\d+\.\d+\.\d+");
+            CoreVersionText = match.Success ? match.Value : "";
+        }
+        catch
+        {
+            CoreVersionText = "";
+        }
+    }
 
     private void LoadFrom(AppSettings settings)
     {
@@ -75,6 +115,8 @@ public partial class SettingsViewModel : ObservableObject
     partial void OnClashApiPortChanged(int value) => OnPropertyChanged(nameof(ClashApiPortLabel));
     partial void OnManualNodeCountChanged(int value) => OnPropertyChanged(nameof(ManualNodeSummary));
     partial void OnSubscriptionUserAgentChanged(string value) => OnPropertyChanged(nameof(UserAgentLabel));
+    partial void OnAppVersionChanged(string value) => OnPropertyChanged(nameof(VersionLine));
+    partial void OnCoreVersionTextChanged(string value) => OnPropertyChanged(nameof(VersionLine));
 
     // ---- 即时生效的开关：和仪表盘的快捷开关走同一条路径，避免两处逻辑不一致 ----
 
@@ -228,5 +270,23 @@ public partial class SettingsViewModel : ObservableObject
         MessageText = text;
         MessageSeverity = severity;
         HasMessage = true;
+        _messageHide.Schedule(severity switch
+        {
+            InfoBarSeverity.Error => AutoHide.LongDelay,
+            InfoBarSeverity.Warning => AutoHide.WarnDelay,
+            _ => AutoHide.ShortDelay,
+        });
+    }
+
+    /// <summary>手动关闭提示条（也算取消倒计时）。</summary>
+    public void DismissMessage() => ClearMessage();
+
+    private void ClearMessage()
+    {
+        _messageHide.Cancel();
+        if (!HasMessage) return;
+        HasMessage = false;
+        MessageTitle = "";
+        MessageText = "";
     }
 }

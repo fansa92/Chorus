@@ -143,4 +143,6 @@ public sealed partial class SubscriptionsPage : Page
         var result = await dialog.ShowAsync();
         return result == ContentDialogResult.Primary ? (nameBox.Text, urlBox.Text.Trim()) : ("", null);
     }
+
+    private void Message_Closed(InfoBar sender, InfoBarClosedEventArgs args) => Vm.DismissMessage();
 }

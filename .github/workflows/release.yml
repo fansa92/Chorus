@@ -21,8 +21,21 @@ jobs:
       - name: 运行单元测试
         run: dotnet test tests/Chorus.Core.Tests/Chorus.Core.Tests.csproj -c Release
 
+      - name: 计算版本号（取自 git tag）
+        id: version
+        shell: pwsh
+        run: |
+          $ref = "${{ github.ref_name }}"
+          if ("${{ github.ref_type }}" -eq "tag" -and $ref -match '^v?(\d+\.\d+\.\d+)') {
+            $version = $Matches[1]
+          } else {
+            $version = "0.0.0-dev"
+          }
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          Write-Output "本次发布的版本号：$version（写入界面「设置」页底部）"
+
       - name: 发布应用 (win-x64)
-        run: dotnet publish src/Chorus.App/Chorus.App.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -o publish
+        run: dotnet publish src/Chorus.App/Chorus.App.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:Version=${{ env.APP_VERSION }} -o publish
 
       - name: 下载 sing-box 核心进包
         shell: pwsh

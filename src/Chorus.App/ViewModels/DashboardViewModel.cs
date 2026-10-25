@@ -1,47 +1,79 @@
+using System.Net;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Chorus.App.Services;
 using Chorus.Core;
 using Chorus.Core.ClashApi;
+using Chorus.Core.Net;
 using Chorus.Core.Utils;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml.Media;
+using Windows.UI;
 
 namespace Chorus.App.ViewModels;
 
 /// <summary>
-/// 仪表盘（参考 Bettbox 首页小组件）：运行开关、实时网速、累计流量、
-/// 出站模式、活动连接、快捷开关。
+/// 仪表盘（排布与逻辑参考 Bettbox 首页的小组件）：
+/// 运行状态、流量统计（实时速度 + 累计流量 + 走势曲线）、内核内存、
+/// 网络检测（出口 IP / 地区 / 运营商 / 延迟）、出站模式、活动连接、快捷开关。
 /// </summary>
 public partial class DashboardViewModel : ObservableObject
 {
+    private static readonly SolidColorBrush OkBrush = new(Color.FromArgb(0xFF, 0x3B, 0xA5, 0x5D));
+    private static readonly SolidColorBrush WarnBrush = new(Color.FromArgb(0xFF, 0xD1, 0x8A, 0x2B));
+    private static readonly SolidColorBrush ErrorBrush = new(Color.FromArgb(0xFF, 0xD1, 0x34, 0x38));
+    private static readonly SolidColorBrush MutedBrush = new(Color.FromArgb(0xFF, 0x8C, 0x8C, 0x8C));
+
+    /// <summary>流量曲线：60 个 1 秒采样。</summary>
+    private const int SpeedHistoryLength = 60;
+
+    /// <summary>内存曲线：60 个 2 秒采样（约 2 分钟）。</summary>
+    private const int MemoryHistoryLength = 60;
+
     private readonly DispatcherQueueTimer _timer;
+    private readonly AutoHide _hintHide;
+    private readonly AutoHide _errorHide;
+
     private int _tick;
     private DateTimeOffset _startedAt;
     private long _totalUp;
     private long _totalDown;
+    private long _memoryPeak;
     private bool _toggling;
 
-    // 最近 60 个采样点，供仪表盘绘制迷你流量曲线
-    private readonly Queue<double> _upHistory = new(61);
-    private readonly Queue<double> _downHistory = new(61);
+    private readonly Queue<double> _upHistory = new(SpeedHistoryLength + 1);
+    private readonly Queue<double> _downHistory = new(SpeedHistoryLength + 1);
+    private readonly Queue<double> _memoryHistory = new(MemoryHistoryLength + 1);
 
     [ObservableProperty] private bool _running;
     [ObservableProperty] private string _statusText = "未启动";
     [ObservableProperty] private string _runTimeText = "00:00:00";
     [ObservableProperty] private string _coreInfo = "";
 
+    // ---- 流量统计：实时速度 + 累计流量 ----
     [ObservableProperty] private string _upSpeedText = "0 B/s";
     [ObservableProperty] private string _downSpeedText = "0 B/s";
-    [ObservableProperty] private double _upBarRatio;
-    [ObservableProperty] private double _downBarRatio;
-
     [ObservableProperty] private string _totalUpText = "0 B";
     [ObservableProperty] private string _totalDownText = "0 B";
 
+    // ---- 内核内存 ----
+    [ObservableProperty] private string _memoryText = "—";
+    [ObservableProperty] private string _memoryDetailText = "核心未运行";
+
+    // ---- 网络检测 ----
+    [ObservableProperty] private string _ipText = "—";
+    [ObservableProperty] private string _locationText = "尚未检测";
+    [ObservableProperty] private string _ispText = "";
+    [ObservableProperty] private string _latencyText = "—";
+    [ObservableProperty] private SolidColorBrush _latencyBrush = MutedBrush;
+    [ObservableProperty] private string _lastDetectText = "—";
+    [ObservableProperty] private string _detectStatusText = "点「重新检测」查看出口 IP 与延迟";
+    [ObservableProperty] private bool _canDetect = true;
+
+    // ---- 出站模式 / 连接 / 快捷开关 ----
     [ObservableProperty] private string _modeText = "规则";
     [ObservableProperty] private bool _ruleMode = true;
     [ObservableProperty] private bool _globalMode;
     [ObservableProperty] private bool _directMode;
-
     [ObservableProperty] private int _connectionCount;
 
     [ObservableProperty] private bool _systemProxyOn;
@@ -56,8 +88,14 @@ public partial class DashboardViewModel : ObservableObject
     /// <summary>每次收到流量采样时触发，参数为最近 60 个采样点（字节/秒）。</summary>
     public event Action<(double[] Up, double[] Down)>? SpeedSampled;
 
+    /// <summary>每次采样到内核内存时触发，参数为最近 60 个采样点（字节）。</summary>
+    public event Action<double[]>? MemorySampled;
+
     /// <summary>开关卡底部的操作提示。</summary>
     public string StartHint => Running ? "点击卡片停止核心" : "点击卡片启动核心";
+
+    /// <summary>流量统计卡底部：累计流量（实时速度在上面的两栏里）。</summary>
+    public string TotalTrafficText => $"累计上传 {TotalUpText} · 累计下载 {TotalDownText}";
 
     public DashboardViewModel()
     {
@@ -65,6 +103,9 @@ public partial class DashboardViewModel : ObservableObject
         _timer.Interval = TimeSpan.FromSeconds(1);
         _timer.Tick += (_, _) => OnTick();
         _timer.Start();
+
+        _hintHide = new AutoHide(() => HasHint = false);
+        _errorHide = new AutoHide(() => HasError = false);
 
         var settings = AppServices.Settings;
         _systemProxyOn = settings.EnableSystemProxy;
@@ -80,23 +121,23 @@ public partial class DashboardViewModel : ObservableObject
             if (running)
             {
                 HasHint = false; // 启动成功后清掉「核心未运行」之类的过期提示
+                _hintHide.Cancel();
                 _startedAt = DateTimeOffset.Now;
-                _totalUp = 0;
-                _totalDown = 0;
-                TotalUpText = "0 B";
-                TotalDownText = "0 B";
-                _upHistory.Clear();
-                _downHistory.Clear();
+                ResetCounters();
                 _ = RefreshModeAsync();
+                _ = DetectLaterAsync(); // 核心刚起来时 Clash API 还没就绪，等一会儿再测
             }
             else
             {
                 RunTimeText = "00:00:00";
                 UpSpeedText = "0 B/s";
                 DownSpeedText = "0 B/s";
-                UpBarRatio = 0;
-                DownBarRatio = 0;
+                ResetCounters();
                 ConnectionCount = 0;
+                MemoryText = "—";
+                MemoryDetailText = "核心未运行";
+                _memoryHistory.Clear();
+                MemorySampled?.Invoke([]);
                 ApplyMode("rule");
             }
         });
@@ -104,11 +145,22 @@ public partial class DashboardViewModel : ObservableObject
         AppServices.Runner.TrafficUpdated += sample => Ui.Post(() => OnTraffic(sample));
     }
 
+    private void ResetCounters()
+    {
+        _totalUp = 0;
+        _totalDown = 0;
+        TotalUpText = "0 B";
+        TotalDownText = "0 B";
+        _upHistory.Clear();
+        _downHistory.Clear();
+    }
+
     public async Task ToggleAsync(bool turnOn)
     {
         if (_toggling) return;
         _toggling = true;
         HasError = false;
+        _errorHide.Cancel();
         try
         {
             if (turnOn)
@@ -118,8 +170,7 @@ public partial class DashboardViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
-            HasError = true;
+            ShowError(ex.Message);
         }
         finally
         {
@@ -133,6 +184,7 @@ public partial class DashboardViewModel : ObservableObject
         if (_toggling) return;
         _toggling = true;
         HasError = false;
+        _errorHide.Cancel();
         try
         {
             if (AppServices.Runner.IsRunning)
@@ -141,8 +193,7 @@ public partial class DashboardViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            ErrorMessage = ex.Message;
-            HasError = true;
+            ShowError(ex.Message);
         }
         finally
         {
@@ -154,8 +205,6 @@ public partial class DashboardViewModel : ObservableObject
     {
         UpSpeedText = BytesHumanize.Format(sample.Up) + "/s";
         DownSpeedText = BytesHumanize.Format(sample.Down) + "/s";
-        UpBarRatio = ToRatio(sample.Up);
-        DownBarRatio = ToRatio(sample.Down);
 
         _totalUp += sample.Up;
         _totalDown += sample.Down;
@@ -164,8 +213,8 @@ public partial class DashboardViewModel : ObservableObject
 
         _upHistory.Enqueue(sample.Up);
         _downHistory.Enqueue(sample.Down);
-        if (_upHistory.Count > 60) _upHistory.Dequeue();
-        if (_downHistory.Count > 60) _downHistory.Dequeue();
+        if (_upHistory.Count > SpeedHistoryLength) _upHistory.Dequeue();
+        if (_downHistory.Count > SpeedHistoryLength) _downHistory.Dequeue();
         SpeedSampled?.Invoke((_upHistory.ToArray(), _downHistory.ToArray()));
     }
 
@@ -180,8 +229,131 @@ public partial class DashboardViewModel : ObservableObject
 
         _tick++;
         if (!Running) return;
-        if (_tick % 2 == 0) _ = RefreshConnectionsAsync();
+        if (_tick % 2 == 0)
+        {
+            _ = RefreshConnectionsAsync();
+            UpdateMemory();
+        }
         if (_tick % 3 == 0) _ = RefreshModeAsync();
+    }
+
+    // ---- 内核内存 ----
+
+    private void UpdateMemory()
+    {
+        var bytes = AppServices.Core.GetMemoryUsage();
+        if (bytes <= 0)
+        {
+            MemoryDetailText = "等待核心数据…";
+            return;
+        }
+
+        MemoryText = BytesHumanize.Format(bytes);
+        if (bytes > _memoryPeak) _memoryPeak = bytes;
+
+        _memoryHistory.Enqueue(bytes);
+        while (_memoryHistory.Count > MemoryHistoryLength) _memoryHistory.Dequeue();
+
+        var average = (long)_memoryHistory.Average();
+        MemoryDetailText = $"平均 {BytesHumanize.Format(average)} · 峰值 {BytesHumanize.Format(_memoryPeak)}";
+        MemorySampled?.Invoke(_memoryHistory.ToArray());
+    }
+
+    // ---- 网络检测 ----
+
+    private async Task DetectLaterAsync()
+    {
+        // 核心刚起来时入站监听还没就绪，等一会儿再测，否则第一轮必然失败
+        await Task.Delay(3000);
+        await DetectAsync();
+    }
+
+    /// <summary>
+    /// 网络检测：量一次 HTTP 往返延迟 + 查出口 IP / 地区 / 运营商。
+    /// 核心在跑就走混合端口（看到的是代理出口），否则直连；代理路径整个没响应时再直连兜底一次。
+    /// </summary>
+    public async Task DetectAsync()
+    {
+        if (!CanDetect) return;
+        CanDetect = false;
+        DetectStatusText = "正在检测…";
+
+        var proxy = AppServices.Runner.IsRunning && AppServices.Settings.MixedPort > 0
+            ? $"http://127.0.0.1:{AppServices.Settings.MixedPort}"
+            : null;
+
+        var result = await ProbeAsync(proxy);
+        var via = proxy is null ? "直连" : "经代理";
+
+        if (proxy is not null && result.Info is null && result.Latency is null)
+        {
+            // 节点没起来 / 代理链路整个不通时，再直连测一次：
+            // 至少能说清「是网络本身不通，还是只是代理不通」
+            var direct = await ProbeAsync(null);
+            if (direct.Info is not null || direct.Latency is not null)
+            {
+                result = direct;
+                via = "直连回退";
+            }
+        }
+
+        var (latency, info, error) = result;
+        Ui.Post(() =>
+        {
+            if (info is not null)
+            {
+                IpText = info.Ip;
+                LocationText = info.LocationText;
+                IspText = info.Isp;
+            }
+            else
+            {
+                IpText = "—";
+                LocationText = "出口 IP 查询失败";
+                IspText = "";
+            }
+
+            LatencyText = latency is null ? "—" : $"{latency} ms";
+            LatencyBrush = latency switch
+            {
+                null => MutedBrush,
+                < 200 => OkBrush,
+                < 500 => WarnBrush,
+                _ => ErrorBrush,
+            };
+            LastDetectText = DateTime.Now.ToString("HH:mm:ss");
+            DetectStatusText = error.Length > 0
+                ? $"{via}检测出错：{error}"
+                : via == "直连回退"
+                    ? "代理路径未响应，以上为直连结果 · 点右上「重新检测」"
+                    : $"{via}检测 · 点右上「重新检测」刷新";
+            CanDetect = true;
+        });
+    }
+
+    /// <summary>跑一轮探测：延迟与 IP 并行，各自带超时（某个接口被墙不会拖死另一个）。</summary>
+    private static async Task<(int? Latency, IpInfo? Info, string Error)> ProbeAsync(string? proxy)
+    {
+        try
+        {
+            using var http = CreateHttp(proxy);
+            var result = await new NetworkProbe(http).RunAsync();
+            return (result.LatencyMs, result.Info, "");
+        }
+        catch (Exception ex)
+        {
+            return (null, null, ex.Message);
+        }
+    }
+
+    private static HttpClient CreateHttp(string? proxy)
+    {
+        var handler = new HttpClientHandler
+        {
+            UseProxy = proxy is not null,
+            Proxy = proxy is null ? null : new WebProxy(proxy),
+        };
+        return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(10) };
     }
 
     // ---- 出站模式（Clash API PATCH /configs） ----
@@ -312,13 +484,35 @@ public partial class DashboardViewModel : ObservableObject
             ShowHint("局域网访问设置已保存，重启核心后生效");
     }
 
+    // ---- 提示 ----
+
     public void ShowHint(string text)
     {
         HintText = text;
         HasHint = true;
+        _hintHide.Schedule(AutoHide.ShortDelay);
     }
 
-    private static double ToRatio(long bytesPerSec) => Math.Min(1.0, Math.Log10(bytesPerSec + 1) / 7.0);
+    public void DismissHint()
+    {
+        HasHint = false;
+        _hintHide.Cancel();
+    }
+
+    private void ShowError(string text)
+    {
+        ErrorMessage = text;
+        HasError = true;
+        _errorHide.Schedule(AutoHide.LongDelay);
+    }
+
+    public void DismissError()
+    {
+        HasError = false;
+        _errorHide.Cancel();
+    }
 
     partial void OnRunningChanged(bool value) => OnPropertyChanged(nameof(StartHint));
+    partial void OnTotalUpTextChanged(string value) => OnPropertyChanged(nameof(TotalTrafficText));
+    partial void OnTotalDownTextChanged(string value) => OnPropertyChanged(nameof(TotalTrafficText));
 }
