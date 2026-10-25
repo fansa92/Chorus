@@ -479,6 +479,7 @@ internal static class ThemeBrushes
     private static Brush? _cardFill;
     private static Brush? _cardStroke;
     private static Brush? _textPrimary;
+    private static Brush? _accent;
 
     public static Brush CardFill
         => _cardFill ??= Lookup("CardBackgroundFillColorDefaultBrush", Transparent);
@@ -488,6 +489,11 @@ internal static class ThemeBrushes
 
     public static Brush TextPrimary
         => _textPrimary ??= Lookup("TextFillColorPrimaryBrush", DefaultText);
+
+    /// <summary>强调色（选中态边框 / 徽标）。取不到时退回系统蓝。</summary>
+    public static Brush Accent
+        => _accent ??= Lookup("AccentFillColorDefaultBrush",
+            new SolidColorBrush(Windows.UI.Color.FromArgb(0xFF, 0x00, 0x67, 0xC0)));
 
     private static Brush Lookup(string key, Brush fallback)
         => Application.Current is { } app

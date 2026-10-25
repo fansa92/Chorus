@@ -40,6 +40,14 @@ public static class AppServices
             Store.Save(Settings);
         }
 
+        // 老版本没有「当前使用的订阅」这个概念：有订阅但没选中时默认选第一个，
+        // 之后订阅页就能像 Bettbox 一样点击卡片切换配置
+        if (Settings.ActiveSubscription() is null && Settings.Subscriptions.Count > 0)
+        {
+            Settings.EnsureActiveSubscription();
+            Store.Save(Settings);
+        }
+
         CleanupStaleSystemProxy();
 
         Clash = new ClashApiClient();

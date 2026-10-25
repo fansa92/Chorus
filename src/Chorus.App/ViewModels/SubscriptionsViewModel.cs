@@ -36,8 +36,23 @@ public partial class SubscriptionsViewModel : ObservableObject
     public SubscriptionsViewModel() => Reload();
 
     // ---------- 顶部摘要 ----------
-    public string SummaryText =>
-        $"{Items.Count} 个订阅 · 共 {TotalNodeCount} 个节点（订阅 {SubscriptionNodeCount} + 手动 {ManualNodeCount}）· {GroupCount} 个策略组";
+    public string SummaryText
+    {
+        get
+        {
+            var active = AppServices.Settings.ActiveSubscription();
+            var source = active is null
+                ? (Items.Count == 0 ? "还没有订阅" : "未选择配置（全部订阅合并生效）")
+                : $"当前使用「{active.Name}」";
+            return $"{source} · 生效 {TotalNodeCount} 个节点（手动 {ManualNodeCount}）· {GroupCount} 个策略组"
+                 + $" · 共 {Items.Count} 份配置";
+        }
+    }
+
+    /// <summary>只有订阅多于一份时，「点击卡片切换」才有意义。</summary>
+    public string ActiveHintText => Items.Count > 1
+        ? "点卡片中间的空白处即可切换到该配置（同一时刻只有一份配置生效，手动节点始终参与）。"
+        : "同一时刻只有一份配置生效：点卡片右侧「更新」刷新，点卡片可把它设为当前使用的配置。";
 
     public Visibility EmptyVisibility => Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ListVisibility => Items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -75,18 +90,54 @@ public partial class SubscriptionsViewModel : ObservableObject
     {
         Ui.Post(() =>
         {
+            // 切换/删除订阅后保证「当前使用」仍指向存在的条目
+            AppServices.Settings.EnsureActiveSubscription();
+
             Items = AppServices.Settings.Subscriptions
-                .Select(entry => new SubscriptionItemViewModel(entry))
+                .Select(entry => new SubscriptionItemViewModel(entry, IsActive(entry)))
                 .ToList();
             ManualNodeCount = AppServices.Settings.Profile.Nodes.Count;
-            SubscriptionNodeCount = AppServices.Settings.Subscriptions.Sum(s => s.Nodes.Count);
+            SubscriptionNodeCount = AppServices.Settings.EffectiveSubscriptions().Sum(s => s.Nodes.Count);
             TotalNodeCount = AppServices.Settings.EffectiveNodes().Count;
             GroupCount = AppServices.Settings.EffectiveGroups().Count;
             OnPropertyChanged(nameof(EmptyVisibility));
             OnPropertyChanged(nameof(ListVisibility));
             OnPropertyChanged(nameof(SummaryText));
+            OnPropertyChanged(nameof(ActiveHintText));
             UpdateAllButtonState();
         });
+    }
+
+    private static bool IsActive(SubscriptionEntry entry) =>
+        string.Equals(AppServices.Settings.ActiveSubscription()?.Url, entry.Url, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// 把某份订阅设为「当前使用的配置」（Bettbox 里点 profile 卡片就是这件事）。
+    /// 只有它解析出的节点/策略组/路由规则参与生成配置；核心在跑就立刻按新配置重启。
+    /// </summary>
+    public async Task SetActiveAsync(SubscriptionItemViewModel item)
+    {
+        if (IsBusy || item.IsActive) return;
+
+        AppServices.Settings.ActiveSubscriptionUrl = item.Entry.Url;
+        AppServices.Store.Save(AppServices.Settings);
+        Reload();
+
+        IsBusy = true;
+        try
+        {
+            var note = await ApplyAsync();
+            var count = item.Entry.Nodes.Count == 0
+                ? "（还没有导入节点，点「更新」拉一次）"
+                : $"：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组、"
+                  + $"{(string.IsNullOrWhiteSpace(item.Entry.RouteJson) ? "无订阅路由" : "含订阅路由规则")}";
+            Show("已切换配置", $"当前使用「{item.Name}」{count}。{note}", InfoBarSeverity.Success);
+        }
+        finally
+        {
+            IsBusy = false;
+            Reload();
+        }
     }
 
     private void UpdateAllButtonState()
@@ -124,13 +175,15 @@ public partial class SubscriptionsViewModel : ObservableObject
         try
         {
             var (ok, message) = await UpdateEntryAsync(entry);
+            // 刚添加的订阅直接设为当前使用的配置（Bettbox 添加配置后也是立刻切过去）
+            AppServices.Settings.ActiveSubscriptionUrl = entry.Url;
             AppServices.Store.Save(AppServices.Settings);
             NewName = "";
             NewUrl = "";
             var note = ok ? await ApplyAsync() : "";
             Show(
                 ok ? "添加成功" : "添加成功但更新失败",
-                ok ? $"「{entry.Name}」已添加，解析到 {entry.Nodes.Count} 个节点、{entry.Groups.Count} 个策略组。{Join(message, note)}"
+                ok ? $"「{entry.Name}」已添加并设为当前使用的配置，解析到 {entry.Nodes.Count} 个节点、{entry.Groups.Count} 个策略组。{Join(message, note)}"
                    : $"「{entry.Name}」已添加，但更新失败：{message}",
                 ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
         }
@@ -162,7 +215,10 @@ public partial class SubscriptionsViewModel : ObservableObject
 
         var trimmed = name.Trim();
         item.Entry.Name = trimmed.Length > 0 ? trimmed : SubscriptionEntryConverter.DefaultName(url);
+        // 当前使用的订阅是用 Url 认的，改了链接要跟着改指向
+        var wasActive = item.IsActive;
         item.Entry.Url = url;
+        if (wasActive) AppServices.Settings.ActiveSubscriptionUrl = url;
         Reload();
 
         IsBusy = true;
@@ -170,7 +226,7 @@ public partial class SubscriptionsViewModel : ObservableObject
         {
             var (ok, message) = await UpdateEntryAsync(item.Entry);
             AppServices.Store.Save(AppServices.Settings);
-            var note = ok ? await ApplyAsync() : "";
+            var note = !ok ? "" : wasActive ? await ApplyAsync() : "该订阅当前未使用，保存不影响正在运行的配置。";
             Show(
                 ok ? "保存成功" : "保存成功但更新失败",
                 ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组。{Join(message, note)}"
@@ -194,7 +250,8 @@ public partial class SubscriptionsViewModel : ObservableObject
         {
             var (ok, message) = await UpdateEntryAsync(item.Entry);
             AppServices.Store.Save(AppServices.Settings);
-            var note = ok ? await ApplyAsync() : "";
+            // 只有更新的是「当前使用」的那份才需要重启核心；更新别人不该打断正在跑的代理
+            var note = !ok ? "" : item.IsActive ? await ApplyAsync() : "该订阅当前未使用，不影响正在运行的配置。";
             Show(
                 ok ? "更新成功" : "更新失败",
                 ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组。{Join(message, note)}"
@@ -223,6 +280,7 @@ public partial class SubscriptionsViewModel : ObservableObject
         try
         {
             var okCount = 0;
+            var activeUpdated = false;
             var failures = new List<string>();
             foreach (var item in items)
             {
@@ -231,8 +289,16 @@ public partial class SubscriptionsViewModel : ObservableObject
                 try
                 {
                     var (ok, message) = await UpdateEntryAsync(item.Entry);
-                    if (ok) okCount++;
-                    else failures.Add($"{item.Entry.Name}：{message}");
+                    if (ok)
+                    {
+                        okCount++;
+                        // 只有「当前使用」的那份变化才需要重启核心
+                        if (item.IsActive) activeUpdated = true;
+                    }
+                    else
+                    {
+                        failures.Add($"{item.Entry.Name}：{message}");
+                    }
                 }
                 finally
                 {
@@ -241,12 +307,15 @@ public partial class SubscriptionsViewModel : ObservableObject
                 }
             }
             AppServices.Store.Save(AppServices.Settings);
-            var note = failures.Count == 0 ? await ApplyAsync() : "";
+            var note = activeUpdated
+                ? await ApplyAsync()
+                : "当前使用的配置没有变化，核心保持运行。";
             Show(
                 failures.Count == 0 ? "全部更新成功" : "部分更新失败",
                 failures.Count == 0
                     ? $"{okCount} 个订阅全部更新成功。{Join(AppServices.Subscriptions.LastFetchDetail, note)}"
-                    : $"成功 {okCount} 个，失败 {failures.Count} 个。首个错误：{failures[0]}",
+                    : $"成功 {okCount} 个，失败 {failures.Count} 个。首个错误：{failures[0]}"
+                      + (activeUpdated ? "（当前使用的配置已刷新）" : "（当前使用的配置没有变化）"),
                 failures.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
         }
         finally
@@ -256,13 +325,39 @@ public partial class SubscriptionsViewModel : ObservableObject
         }
     }
 
-    public void Remove(SubscriptionItemViewModel item)
+    /// <summary>
+    /// 删除订阅。删掉的正好是「当前使用」的那份时，自动切到剩下的第一份并让核心按新配置重启，
+    /// 否则策略组页会一直显示已经删掉的配置。
+    /// </summary>
+    public async Task RemoveAsync(SubscriptionItemViewModel item)
     {
+        if (IsBusy) return;
+        var wasActive = item.IsActive;
         AppServices.Settings.Subscriptions.Remove(item.Entry);
         AppServices.Store.Save(AppServices.Settings);
         Reload();
-        Show("已删除", $"订阅「{item.Entry.Name}」已删除。核心正在运行时点「全部更新」或手动重启核心后生效。",
-            InfoBarSeverity.Informational);
+
+        var next = AppServices.Settings.ActiveSubscription();
+        if (!wasActive)
+        {
+            Show("已删除", $"订阅「{item.Name}」已删除。核心正在运行时点「全部更新」或手动重启核心后生效。",
+                InfoBarSeverity.Informational);
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var note = next is null
+                ? "现在没有任何订阅，只剩手动节点参与生成配置。"
+                : $"现在使用「{next.Name}」。{await ApplyAsync()}";
+            Show("已删除", $"「{item.Name}」是当前使用的配置，已删除。{note}", InfoBarSeverity.Informational);
+        }
+        finally
+        {
+            IsBusy = false;
+            Reload();
+        }
     }
 
     /// <summary>下载并解析单个订阅，写回 Entry。返回 (是否成功, 提示信息)。</summary>
@@ -337,6 +432,9 @@ public partial class SubscriptionItemViewModel : ObservableObject
 
     [ObservableProperty] private bool _isUpdating;
 
+    /// <summary>是否是「当前使用的配置」（同一时刻只有一份生效）。</summary>
+    [ObservableProperty] private bool _isActive;
+
     public string Name => Entry.Name;
     public string Url => Entry.Url;
 
@@ -402,7 +500,25 @@ public partial class SubscriptionItemViewModel : ObservableObject
     /// <summary>列表显示的状态：更新中优先。</summary>
     public string DisplayStatus => IsUpdating ? "正在更新…" : $"{UpdatedText} · {CountText}";
 
-    public SubscriptionItemViewModel(SubscriptionEntry entry) => Entry = entry;
+    // ---------- 选中态（Bettbox 的配置卡片：选中的那份有强调色描边与「使用中」标记） ----------
+    public Visibility ActiveBadgeVisibility => IsActive ? Visibility.Visible : Visibility.Collapsed;
+    public Brush CardStroke => IsActive ? ThemeBrushes.Accent : ThemeBrushes.CardStroke;
+    public Thickness CardStrokeThickness => IsActive ? new Thickness(2) : new Thickness(1);
+    public string ActiveTooltip => IsActive ? "当前使用的配置" : "点击设为当前使用的配置";
+
+    public SubscriptionItemViewModel(SubscriptionEntry entry, bool isActive)
+    {
+        Entry = entry;
+        _isActive = isActive;
+    }
+
+    partial void OnIsActiveChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ActiveBadgeVisibility));
+        OnPropertyChanged(nameof(CardStroke));
+        OnPropertyChanged(nameof(CardStrokeThickness));
+        OnPropertyChanged(nameof(ActiveTooltip));
+    }
 
     partial void OnIsUpdatingChanged(bool value)
     {

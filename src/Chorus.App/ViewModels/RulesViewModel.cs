@@ -139,13 +139,14 @@ public partial class RulesViewModel : ObservableObject
         FinalText = model.Final ?? "（未设置，使用出站列表第一个）";
         DnsFinalText = model.DnsFinal ?? "（未设置）";
 
-        var sub = AppServices.Settings.Subscriptions
+        var sub = AppServices.Settings.EffectiveSubscriptions()
             .FirstOrDefault(s => !string.IsNullOrWhiteSpace(s.RouteJson) || !string.IsNullOrWhiteSpace(s.DnsJson));
         SourceText = sub is null
             ? $"{source} · 未使用订阅规则"
             : $"{source} · 规则来自订阅「{sub.Name}」";
 
-        var ruleSetBytes = AppServices.Settings.Subscriptions.Any(s => !string.IsNullOrWhiteSpace(s.RouteJson));
+        var ruleSetBytes = AppServices.Settings.EffectiveSubscriptions()
+            .Any(s => !string.IsNullOrWhiteSpace(s.RouteJson));
         RuleSetHintText = RuleSets.Count == 0
             ? "当前配置没有引用规则集。订阅里带 rule_set 时，此处会列出可更新的 .srs；也可以到设置页打开「使用订阅自带的分流规则」。"
             : $"共 {RuleSets.Count} 个规则集，远程规则集由核心在启动时下载并缓存{(ruleSetBytes ? "" : "（当前没有来自订阅的规则集）")}。";

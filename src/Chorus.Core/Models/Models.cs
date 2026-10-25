@@ -92,25 +92,61 @@ public sealed class AppSettings
     public Profile Profile { get; set; } = new();
 
     /// <summary>
+    /// 当前选中的订阅（用 Url 唯一标识）。与 Bettbox 一样同一次只有一份配置生效：
+    /// 只有选中的订阅里的节点/策略组/路由规则会参与生成配置，手动节点始终附加在后面。
+    /// 为空表示还没选过——此时退回「全部订阅合并生效」的老行为。
+    /// </summary>
+    public string? ActiveSubscriptionUrl { get; set; }
+
+    /// <summary>
     /// 是否采用订阅自带的 route/dns（规则集分流）。关闭后只用 Chorus 内置的两条模式规则。
     /// 默认开启：订阅转换服务给的规则集才是真正的分流依据。
     /// </summary>
     public bool ApplySubscriptionRouting { get; set; } = true;
 
-    /// <summary>生效的节点全集：手动节点 + 所有订阅的节点（按此顺序合并）。</summary>
+    /// <summary>当前选中的订阅；未选中（或选中的已被删除）时返回 null。</summary>
+    public SubscriptionEntry? ActiveSubscription() =>
+        string.IsNullOrWhiteSpace(ActiveSubscriptionUrl)
+            ? null
+            : Subscriptions.FirstOrDefault(s =>
+                string.Equals(s.Url, ActiveSubscriptionUrl, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>真正参与生成配置的订阅集合：选中了一个就只用它，否则用全部（旧行为）。</summary>
+    public List<SubscriptionEntry> EffectiveSubscriptions()
+    {
+        var active = ActiveSubscription();
+        return active is null ? Subscriptions : [active];
+    }
+
+    /// <summary>
+    /// 保证「当前使用的订阅」指向一个真实存在的条目：首次使用、删除了当前订阅之后调用。
+    /// 没有订阅时清空。
+    /// </summary>
+    public void EnsureActiveSubscription()
+    {
+        if (Subscriptions.Count == 0)
+        {
+            ActiveSubscriptionUrl = null;
+            return;
+        }
+        if (ActiveSubscription() is null)
+            ActiveSubscriptionUrl = Subscriptions[0].Url;
+    }
+
+    /// <summary>生效的节点全集：手动节点 + 生效订阅的节点（按此顺序合并）。</summary>
     public List<NodeEntry> EffectiveNodes()
     {
         var all = new List<NodeEntry>(Profile.Nodes);
-        foreach (var sub in Subscriptions)
+        foreach (var sub in EffectiveSubscriptions())
             all.AddRange(sub.Nodes);
         return all;
     }
 
-    /// <summary>生效的策略组全集：手动组 + 所有订阅的组（按此顺序合并，同名去重保留第一个）。</summary>
+    /// <summary>生效的策略组全集：手动组 + 生效订阅的组（按此顺序合并，同名去重保留第一个）。</summary>
     public List<ProxyGroup> EffectiveGroups()
     {
         var all = new List<ProxyGroup>(Profile.Groups);
-        foreach (var sub in Subscriptions)
+        foreach (var sub in EffectiveSubscriptions())
             all.AddRange(sub.Groups);
         return all
             .Where(g => !string.IsNullOrWhiteSpace(g.Name))

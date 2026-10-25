@@ -28,8 +28,9 @@ public static partial class ConfigGenerator
                 throw new InvalidOperationException($"策略组名称“{group.Name}”是保留名称，请修改。");
 
         var manualNames = manualGroups.Select(g => g.Name).ToHashSet(StringComparer.Ordinal);
+        // 只取生效的订阅（订阅页里选中的那一份），与 Bettbox 一样同一时刻只用一份配置
         var subGroups = DedupeByName(
-            settings.Subscriptions.SelectMany(s => s.Groups ?? []));
+            settings.EffectiveSubscriptions().SelectMany(s => s.Groups ?? []));
         // 与手动组同名的订阅组被手动组优先（EffectiveGroups 已去重，这里再按来源过滤一次）
         var allGroups = new List<ProxyGroup>(manualGroups);
         allGroups.AddRange(subGroups.Where(g => !manualNames.Contains(g.Name)));

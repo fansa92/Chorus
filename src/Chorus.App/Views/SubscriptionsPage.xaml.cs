@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Chorus.App.Services;
 using Chorus.App.ViewModels;
@@ -25,6 +26,16 @@ public sealed partial class SubscriptionsPage : Page
     }
 
     private async void UpdateAll_Click(object sender, RoutedEventArgs e) => await Vm.UpdateAllAsync();
+
+    /// <summary>
+    /// 点卡片空白处 = 把这份订阅设为当前使用的配置（Bettbox 里点 profile 卡片的行为）。
+    /// 按钮自己会吃掉指针事件，所以点「更新/编辑/删除」不会误触发这里的切换。
+    /// </summary>
+    private async void Card_Tapped(object sender, TappedRoutedEventArgs e)
+    {
+        if (ItemOf(sender) is not { } item || item.IsActive) return;
+        await Vm.SetActiveAsync(item);
+    }
 
     private async void UpdateItem_Click(object sender, RoutedEventArgs e)
     {
@@ -55,7 +66,7 @@ public sealed partial class SubscriptionsPage : Page
             DefaultButton = ContentDialogButton.Close,
         };
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
-        Vm.Remove(item);
+        await Vm.RemoveAsync(item);
     }
 
     private static SubscriptionItemViewModel? ItemOf(object sender)

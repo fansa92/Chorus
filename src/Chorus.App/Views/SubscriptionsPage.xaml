@@ -34,7 +34,7 @@
                 IsClosable="False" />
             <TextBlock Text="{x:Bind Vm.SummaryText, Mode=OneWay}"
                        Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
-            <TextBlock Text="提示：修改订阅后，若核心正在运行会自动按新配置重启；点卡片上的「更新」可单独刷新。订阅转换服务按设置页里的 UA 返回 sing-box JSON 或 Clash YAML。"
+            <TextBlock Text="{x:Bind Vm.ActiveHintText, Mode=OneWay}"
                        Opacity="0.5" FontSize="11" TextWrapping="Wrap" />
         </StackPanel>
 
@@ -69,12 +69,15 @@
                 <DataTemplate x:DataType="vm:SubscriptionItemViewModel">
                     <Border
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                        BorderThickness="1"
+                        BorderBrush="{x:Bind CardStroke, Mode=OneWay}"
+                        BorderThickness="{x:Bind CardStrokeThickness, Mode=OneWay}"
                         CornerRadius="10"
-                        Padding="14,12">
+                        Padding="14,12"
+                        Tag="{x:Bind}"
+                        Tapped="Card_Tapped"
+                        ToolTipService.ToolTip="{x:Bind ActiveTooltip, Mode=OneWay}">
                         <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                            <!-- 首字母图标 -->
+                            <!-- 首字母图标（选中时用强调色，和「使用中」徽标一起表明当前生效的是这份） -->
                             <Border Width="40" Height="40" CornerRadius="10"
                                     VerticalAlignment="Center"
                                     Background="{ThemeResource SubtleFillColorSecondaryBrush}">
@@ -87,13 +90,21 @@
                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
                                 <StackPanel Orientation="Horizontal" Spacing="8">
                                     <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold"
-                                               TextTrimming="CharacterEllipsis" MaxWidth="320"
+                                               TextTrimming="CharacterEllipsis" MaxWidth="300"
                                                VerticalAlignment="Center" />
                                     <Border CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
                                             Background="{x:Bind BadgeBackground}"
                                             BorderBrush="{x:Bind BadgeBrush}" BorderThickness="1">
                                         <TextBlock Text="{x:Bind BadgeText}" FontSize="10"
                                                    Foreground="{x:Bind BadgeBrush}" />
+                                    </Border>
+                                    <Border CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
+                                            Background="#220067C0"
+                                            BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
+                                            BorderThickness="1"
+                                            Visibility="{x:Bind ActiveBadgeVisibility, Mode=OneWay}">
+                                        <TextBlock Text="使用中" FontSize="10"
+                                                   Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                     </Border>
                                 </StackPanel>
                                 <TextBlock Text="{x:Bind Host}" FontSize="12" Opacity="0.6"

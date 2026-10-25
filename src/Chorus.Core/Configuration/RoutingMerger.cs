@@ -38,7 +38,8 @@ public static class RoutingMerger
         if (!settings.ApplySubscriptionRouting)
             return RoutingMergeReport.None("设置里已关闭「使用订阅自带的路由规则」");
 
-        var sub = settings.Subscriptions.FirstOrDefault(s =>
+        // 只合并「当前使用」的那份订阅的路由，否则切换配置后规则还是别人家的
+        var sub = settings.EffectiveSubscriptions().FirstOrDefault(s =>
             !string.IsNullOrWhiteSpace(s.RouteJson) || !string.IsNullOrWhiteSpace(s.DnsJson));
         if (sub is null)
             return RoutingMergeReport.None("订阅里没有可用的路由配置");
