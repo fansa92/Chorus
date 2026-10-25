@@ -7,64 +7,254 @@
     mc:Ignorable="d"
     x:DefaultBindMode="OneWay">
 
-    <ScrollViewer>
-        <StackPanel
-            MaxWidth="720"
-            HorizontalAlignment="Left"
-            Spacing="12"
-            Padding="24,16,24,24">
+    <Page.Resources>
+        <!-- 排布与 Bettbox 的设置页一致：小字分组标题 + 圆角卡片，卡片里是一行行条目，
+             行与行之间一条缩进的分隔线；整行可点，右侧放开关或「当前值 ›」 -->
+        <Style x:Key="SectionHeaderStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+        </Style>
+        <Style x:Key="SectionHintStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,2,0,0" />
+        </Style>
+        <Style x:Key="SettingsCardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+        </Style>
+        <Style x:Key="SettingsRowStyle" TargetType="Grid">
+            <Setter Property="Padding" Value="16,11" />
+            <Setter Property="ColumnSpacing" Value="12" />
+            <Setter Property="Background" Value="Transparent" />
+        </Style>
+        <Style x:Key="RowTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="14" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="RowSubtitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,2,0,0" />
+        </Style>
+        <Style x:Key="RowValueStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+            <Setter Property="MaxWidth" Value="220" />
+        </Style>
+        <Style x:Key="RowDividerStyle" TargetType="Border">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Background" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="Margin" Value="16,0,16,0" />
+        </Style>
+        <Style x:Key="RowChevronStyle" TargetType="FontIcon">
+            <Setter Property="Glyph" Value="&#xE76C;" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorTertiaryBrush}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+    </Page.Resources>
+
+    <!-- HorizontalScrollMode 必须是 Disabled：否则 ScrollViewer 用无限宽度测量内容，
+         下面的 Grid 就撑不满，卡片会缩成内容宽度、右侧留一大片空白 -->
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  HorizontalScrollMode="Disabled"
+                  HorizontalScrollBarVisibility="Disabled"
+                  Padding="0,0,12,0">
+        <!-- 外层不用 StackPanel：它在水平方向会给子元素无限宽，卡片量不出铺满的宽度 -->
+        <Grid Padding="24,16,24,32">
+        <StackPanel>
 
             <TextBlock Text="设置" Style="{StaticResource TitleTextBlockStyle}" />
+            <TextBlock Style="{StaticResource SectionHintStyle}" Margin="0,4,0,0"
+                       Text="改动即时保存，不需要再点保存。" />
 
             <InfoBar
+                Margin="0,12,0,0"
                 IsOpen="{x:Bind Vm.HasMessage}"
                 Title="{x:Bind Vm.MessageTitle}"
                 Message="{x:Bind Vm.MessageText}"
                 Severity="{x:Bind Vm.MessageSeverity}"
                 IsClosable="False" />
 
-            <TextBlock Text="代理" Style="{StaticResource SubtitleTextBlockStyle}" />
-            <TextBox Header="混合代理端口（HTTP + SOCKS）" Text="{x:Bind Vm.MixedPortText, Mode=TwoWay}" />
-            <TextBox Header="Clash API 端口" Text="{x:Bind Vm.ClashApiPortText, Mode=TwoWay}" />
-            <ToggleSwitch Header="允许局域网连接" IsOn="{x:Bind Vm.AllowLan, Mode=TwoWay}" />
-            <ToggleSwitch Header="启动后自动设置系统代理（TUN 模式下无效）"
-                          IsOn="{x:Bind Vm.EnableSystemProxy, Mode=TwoWay}" />
-            <ToggleSwitch Header="启用 TUN 模式（需要以管理员身份运行）"
-                          IsOn="{x:Bind Vm.EnableTun, Mode=TwoWay}" />
+            <!-- ===== 网络 ===== -->
+            <TextBlock Text="网络" Style="{StaticResource SectionHeaderStyle}" Margin="2,22,0,8" />
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="mixedPort" Tapped="MixedPortRow_Tapped">
+                        <StackPanel>
+                            <TextBlock Text="混合代理端口" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="HTTP 与 SOCKS 共用同一个端口" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{x:Bind Vm.MixedPortLabel}" Style="{StaticResource RowValueStyle}" />
+                            <FontIcon Style="{StaticResource RowChevronStyle}" />
+                        </StackPanel>
+                    </Grid>
 
-            <TextBlock Text="订阅与节点" Style="{StaticResource SubtitleTextBlockStyle}" />
-            <InfoBar Severity="Informational" IsClosable="False" IsOpen="True"
-                     Message="订阅链接请在左侧「订阅」页管理，支持添加多个订阅并分别更新。" />
-            <TextBox
-                Header="拉取订阅时的 User-Agent"
-                PlaceholderText="sing-box"
-                Text="{x:Bind Vm.SubscriptionUserAgent, Mode=TwoWay}" />
-            <TextBlock Opacity="0.7" TextWrapping="Wrap"
-                       Text="订阅转换服务按 UA 决定返回格式：填 sing-box 返回原生 JSON（含策略组），填 clash-verge/v2.0.0 返回 Clash YAML。" />
-            <ToggleSwitch
-                Header="使用订阅自带的分流规则（规则集 / DNS）"
-                IsOn="{x:Bind Vm.ApplySubscriptionRouting, Mode=TwoWay}" />
-            <TextBlock Opacity="0.7" TextWrapping="Wrap"
-                       Text="开启后，订阅里的 route.rules、route.rule_set 与 dns 会合并进生成的配置（引用不到的条目会自动剔除）。关闭则只用内置的「规则/全局/直连」三种模式。" />
-            <TextBox Header="手动粘贴分享链接（每行一条，支持 ss/vmess/vless/trojan/hysteria2/anytls）"
-                     Text="{x:Bind Vm.ShareLinks, Mode=TwoWay}"
-                     AcceptsReturn="True" Height="110" TextWrapping="Wrap" />
-            <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="导入节点" Click="Import_Click" Style="{StaticResource AccentButtonStyle}" />
-                <Button Content="清空手动节点" Click="ClearManual_Click" />
-            </StackPanel>
-            <TextBlock Opacity="0.7">
-                <Run Text="当前手动节点：" />
-                <Run Text="{x:Bind Vm.ManualNodeCount, Mode=OneWay}" FontWeight="SemiBold" />
-                <Run Text="个（订阅节点在「订阅」页查看，两者合并后生效）" />
-            </TextBlock>
+                    <Border Style="{StaticResource RowDividerStyle}" />
 
-            <TextBlock Text="其他" Style="{StaticResource SubtitleTextBlockStyle}" />
-            <ComboBox Header="日志等级" ItemsSource="{x:Bind Vm.LogLevels}"
-                      SelectedItem="{x:Bind Vm.LogLevel, Mode=TwoWay}" />
-            <ToggleSwitch Header="关闭窗口时最小化到托盘" IsOn="{x:Bind Vm.CloseToTray, Mode=TwoWay}" />
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="clashApiPort" Tapped="ClashApiPortRow_Tapped">
+                        <StackPanel>
+                            <TextBlock Text="Clash API 端口" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="策略组、规则与延迟测速都走这个接口" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{x:Bind Vm.ClashApiPortLabel}" Style="{StaticResource RowValueStyle}" />
+                            <FontIcon Style="{StaticResource RowChevronStyle}" />
+                        </StackPanel>
+                    </Grid>
 
-            <Button Content="保存设置" Click="Save_Click" />
+                    <Border Style="{StaticResource RowDividerStyle}" />
+
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="allowLan" Tapped="ToggleRow_Tapped"
+                          AutomationProperties.Name="允许局域网连接">
+                        <StackPanel>
+                            <TextBlock Text="允许局域网连接" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="别的设备可以用本机 IP + 混合端口走代理（重启核心后生效）" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="AllowLanToggle" Grid.Column="1"
+                                      OnContent="" OffContent="" MinWidth="0"
+                                      IsHitTestVisible="False" VerticalAlignment="Center"
+                                      IsOn="{x:Bind Vm.AllowLan, Mode=TwoWay}" />
+                    </Grid>
+
+                    <Border Style="{StaticResource RowDividerStyle}" />
+
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="systemProxy" Tapped="ToggleRow_Tapped"
+                          AutomationProperties.Name="启动后自动设置系统代理">
+                        <StackPanel>
+                            <TextBlock Text="启动后自动设置系统代理" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="开着开关会立即改系统代理；TUN 模式下自动让位" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="SystemProxyToggle" Grid.Column="1"
+                                      OnContent="" OffContent="" MinWidth="0"
+                                      IsHitTestVisible="False" VerticalAlignment="Center"
+                                      IsOn="{x:Bind Vm.EnableSystemProxy, Mode=TwoWay}" />
+                    </Grid>
+
+                    <Border Style="{StaticResource RowDividerStyle}" />
+
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="tun" Tapped="ToggleRow_Tapped"
+                          AutomationProperties.Name="启用 TUN 模式">
+                        <StackPanel>
+                            <TextBlock Text="启用 TUN 模式" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="接管全部流量，需要以管理员身份运行（重启核心后生效）" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="TunToggle" Grid.Column="1"
+                                      OnContent="" OffContent="" MinWidth="0"
+                                      IsHitTestVisible="False" VerticalAlignment="Center"
+                                      IsOn="{x:Bind Vm.EnableTun, Mode=TwoWay}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 订阅与节点 ===== -->
+            <TextBlock Text="订阅与节点" Style="{StaticResource SectionHeaderStyle}" Margin="2,22,0,4" />
+            <TextBlock Style="{StaticResource SectionHintStyle}" Margin="2,0,0,8"
+                       Text="订阅链接在左侧「订阅」页管理，可添加多份并分别更新。" />
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="userAgent" Tapped="UserAgentRow_Tapped">
+                        <StackPanel>
+                            <TextBlock Text="拉取订阅时的 User-Agent" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="转换服务按 UA 决定返回格式：sing-box 给原生 JSON（含策略组），clash-verge 给 Clash YAML" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{x:Bind Vm.UserAgentLabel}" Style="{StaticResource RowValueStyle}" />
+                            <FontIcon Style="{StaticResource RowChevronStyle}" />
+                        </StackPanel>
+                    </Grid>
+
+                    <Border Style="{StaticResource RowDividerStyle}" />
+
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="routing" Tapped="ToggleRow_Tapped"
+                          AutomationProperties.Name="使用订阅自带的分流规则">
+                        <StackPanel>
+                            <TextBlock Text="使用订阅自带的分流规则" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="把订阅里的路由规则、规则集与 DNS 合并进配置；关闭则只用内置的规则/全局/直连" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="RoutingToggle" Grid.Column="1"
+                                      OnContent="" OffContent="" MinWidth="0"
+                                      IsHitTestVisible="False" VerticalAlignment="Center"
+                                      IsOn="{x:Bind Vm.ApplySubscriptionRouting, Mode=TwoWay}" />
+                    </Grid>
+
+                    <Border Style="{StaticResource RowDividerStyle}" />
+
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="manual" Tapped="ManualRow_Tapped">
+                        <StackPanel>
+                            <TextBlock Text="手动添加的节点" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="粘贴分享链接导入，与订阅节点合并生效" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+                            <TextBlock Text="{x:Bind Vm.ManualNodeSummary}" Style="{StaticResource RowValueStyle}" />
+                            <FontIcon Style="{StaticResource RowChevronStyle}" />
+                        </StackPanel>
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 其他 ===== -->
+            <TextBlock Text="其他" Style="{StaticResource SectionHeaderStyle}" Margin="2,22,0,8" />
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <StackPanel>
+                            <TextBlock Text="日志等级" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="等级越低越吵，排查路由问题时用 debug" />
+                        </StackPanel>
+                        <ComboBox Grid.Column="1" MinWidth="116" VerticalAlignment="Center"
+                                  ItemsSource="{x:Bind Vm.LogLevels}"
+                                  SelectedItem="{x:Bind Vm.LogLevel, Mode=TwoWay}" />
+                    </Grid>
+
+                    <Border Style="{StaticResource RowDividerStyle}" />
+
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="closeToTray" Tapped="ToggleRow_Tapped"
+                          AutomationProperties.Name="关闭窗口时最小化到托盘">
+                        <StackPanel>
+                            <TextBlock Text="关闭窗口时最小化到托盘" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="关掉则直接退出程序并停止代理" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="CloseToTrayToggle" Grid.Column="1"
+                                      OnContent="" OffContent="" MinWidth="0"
+                                      IsHitTestVisible="False" VerticalAlignment="Center"
+                                      IsOn="{x:Bind Vm.CloseToTray, Mode=TwoWay}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <TextBlock Style="{StaticResource SectionHintStyle}" Margin="2,16,0,0"
+                       Text="设置保存在 %LOCALAPPDATA%\Chorus\settings.json，不在安装目录里。" />
         </StackPanel>
+        </Grid>
     </ScrollViewer>
 </Page>

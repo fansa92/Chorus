@@ -126,7 +126,7 @@ public partial class SubscriptionsViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            var note = await ApplyAsync();
+            var (_, note) = await ApplyAsync();
             var count = item.Entry.Nodes.Count == 0
                 ? "（还没有导入节点，点「更新」拉一次）"
                 : $"：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组、"
@@ -180,12 +180,12 @@ public partial class SubscriptionsViewModel : ObservableObject
             AppServices.Store.Save(AppServices.Settings);
             NewName = "";
             NewUrl = "";
-            var note = ok ? await ApplyAsync() : "";
+            var (applyOk, note) = ok ? await ApplyAsync() : (true, "");
             Show(
                 ok ? "添加成功" : "添加成功但更新失败",
                 ok ? $"「{entry.Name}」已添加并设为当前使用的配置，解析到 {entry.Nodes.Count} 个节点、{entry.Groups.Count} 个策略组。{Join(message, note)}"
                    : $"「{entry.Name}」已添加，但更新失败：{message}",
-                ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+                ok ? (applyOk ? InfoBarSeverity.Success : InfoBarSeverity.Warning) : InfoBarSeverity.Warning);
         }
         finally
         {
@@ -226,12 +226,14 @@ public partial class SubscriptionsViewModel : ObservableObject
         {
             var (ok, message) = await UpdateEntryAsync(item.Entry);
             AppServices.Store.Save(AppServices.Settings);
-            var note = !ok ? "" : wasActive ? await ApplyAsync() : "该订阅当前未使用，保存不影响正在运行的配置。";
+            var (applyOk, note) = !ok ? (true, "")
+                : wasActive ? await ApplyAsync()
+                : (true, "该订阅当前未使用，保存不影响正在运行的配置。");
             Show(
                 ok ? "保存成功" : "保存成功但更新失败",
                 ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组。{Join(message, note)}"
                    : $"「{item.Entry.Name}」已保存，但更新失败：{message}",
-                ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+                ok ? (applyOk ? InfoBarSeverity.Success : InfoBarSeverity.Warning) : InfoBarSeverity.Warning);
         }
         finally
         {
@@ -250,13 +252,22 @@ public partial class SubscriptionsViewModel : ObservableObject
         {
             var (ok, message) = await UpdateEntryAsync(item.Entry);
             AppServices.Store.Save(AppServices.Settings);
-            // 只有更新的是「当前使用」的那份才需要重启核心；更新别人不该打断正在跑的代理
-            var note = !ok ? "" : item.IsActive ? await ApplyAsync() : "该订阅当前未使用，不影响正在运行的配置。";
-            Show(
-                ok ? "更新成功" : "更新失败",
-                ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组。{Join(message, note)}"
-                   : $"「{item.Entry.Name}」更新失败：{message}",
-                ok ? InfoBarSeverity.Success : InfoBarSeverity.Error);
+            if (!ok)
+            {
+                Show("更新失败", $"「{item.Entry.Name}」更新失败：{message}", InfoBarSeverity.Error);
+            }
+            else
+            {
+                // 成功不再弹提示条：卡片上的「x 分钟前更新 · N 个节点 · M 个策略组」就是结果，
+                // 每次都弹一条绿条只会打断操作。只有「核心重启失败」这种真问题才提示。
+                ClearMessage();
+                // 只有更新的是「当前使用」的那份才需要重启核心；更新别人不该打断正在跑的代理
+                if (item.IsActive)
+                {
+                    var (applyOk, note) = await ApplyAsync();
+                    if (!applyOk) Show("已更新，但重启核心失败", note, InfoBarSeverity.Warning);
+                }
+            }
         }
         finally
         {
@@ -307,16 +318,26 @@ public partial class SubscriptionsViewModel : ObservableObject
                 }
             }
             AppServices.Store.Save(AppServices.Settings);
-            var note = activeUpdated
-                ? await ApplyAsync()
-                : "当前使用的配置没有变化，核心保持运行。";
-            Show(
-                failures.Count == 0 ? "全部更新成功" : "部分更新失败",
-                failures.Count == 0
-                    ? $"{okCount} 个订阅全部更新成功。{Join(AppServices.Subscriptions.LastFetchDetail, note)}"
+            if (failures.Count > 0)
+            {
+                // 全军覆没时别叫「部分更新失败」，直接把原因说清楚
+                var title = okCount == 0 ? "更新失败" : "部分更新失败";
+                var text = okCount == 0
+                    ? $"{failures.Count} 个订阅都没更新成功。首个错误：{failures[0]}"
                     : $"成功 {okCount} 个，失败 {failures.Count} 个。首个错误：{failures[0]}"
-                      + (activeUpdated ? "（当前使用的配置已刷新）" : "（当前使用的配置没有变化）"),
-                failures.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
+                      + (activeUpdated ? "（当前使用的配置已刷新）" : "（当前使用的配置没有变化）");
+                Show(title, text, InfoBarSeverity.Warning);
+            }
+            else
+            {
+                // 全部成功也不弹提示条（每张卡的更新时间已经变了）
+                ClearMessage();
+                if (activeUpdated)
+                {
+                    var (applyOk, note) = await ApplyAsync();
+                    if (!applyOk) Show("已全部更新，但重启核心失败", note, InfoBarSeverity.Warning);
+                }
+            }
         }
         finally
         {
@@ -348,9 +369,9 @@ public partial class SubscriptionsViewModel : ObservableObject
         IsBusy = true;
         try
         {
-            var note = next is null
-                ? "现在没有任何订阅，只剩手动节点参与生成配置。"
-                : $"现在使用「{next.Name}」。{await ApplyAsync()}";
+            var (_, note) = next is null
+                ? (true, "现在没有任何订阅，只剩手动节点参与生成配置。")
+                : (true, $"现在使用「{next.Name}」。{(await ApplyAsync()).Note}");
             Show("已删除", $"「{item.Name}」是当前使用的配置，已删除。{note}", InfoBarSeverity.Informational);
         }
         finally
@@ -389,19 +410,19 @@ public partial class SubscriptionsViewModel : ObservableObject
     /// 订阅数据变化后让新配置真正生效：核心在运行时按新配置重启（否则策略组页读到的
     /// 仍是旧配置，看起来就像「策略组没加载」）；核心未运行时提示启动后生效。
     /// </summary>
-    private static async Task<string> ApplyAsync()
+    private static async Task<(bool Ok, string Note)> ApplyAsync()
     {
-        if (!AppServices.Runner.IsRunning) return "启动核心后生效。";
+        if (!AppServices.Runner.IsRunning) return (true, "启动核心后生效。");
         try
         {
             await AppServices.Runner.StopAsync();
             await AppServices.Runner.StartAsync();
             _ = AppServices.ProxiesVm.RefreshAsync();
-            return "核心已按新配置重启。";
+            return (true, "核心已按新配置重启。");
         }
         catch (Exception ex)
         {
-            return $"自动重启核心失败（{ex.Message}），请手动重启核心。";
+            return (false, $"自动重启核心失败（{ex.Message}），请手动重启核心。");
         }
     }
 
@@ -415,6 +436,15 @@ public partial class SubscriptionsViewModel : ObservableObject
         MessageText = text;
         MessageSeverity = severity;
         HasMessage = true;
+    }
+
+    /// <summary>收起提示条。更新成功不再提示，顺手把上一次残留的成功/信息条也收掉。</summary>
+    private void ClearMessage()
+    {
+        if (!HasMessage) return;
+        HasMessage = false;
+        MessageTitle = "";
+        MessageText = "";
     }
 }
 

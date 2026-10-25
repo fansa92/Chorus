@@ -27,10 +27,12 @@
             PlaceholderText="搜索节点名称或策略组…"
             Text="{x:Bind Vm.SearchText, Mode=TwoWay}" />
 
-        <!-- 策略组切换标签：点标签切换到对应策略组（一次只显示一个组） -->
+        <!-- 策略组切换标签：点标签切换到对应策略组（一次只显示一个组）
+             底部 Padding 是给覆盖式横向滚动条留的位置，否则滚动条会压在标签上 -->
         <ScrollViewer
             Grid.Row="2"
-            Margin="0,0,0,10"
+            Margin="0,0,0,4"
+            Padding="0,0,0,12"
             HorizontalScrollBarVisibility="Auto"
             VerticalScrollBarVisibility="Disabled"
             HorizontalScrollMode="Enabled"
