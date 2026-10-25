@@ -71,9 +71,10 @@ public partial class SubscriptionsViewModel : ObservableObject
             AppServices.Store.Save(AppServices.Settings);
             NewName = "";
             NewUrl = "";
+            var note = ok ? await ApplyAsync() : "";
             Show(
                 ok ? "添加成功" : "添加成功但更新失败",
-                ok ? $"「{entry.Name}」已添加，解析到 {entry.Nodes.Count} 个节点。{RestartHint()}"
+                ok ? $"「{entry.Name}」已添加，解析到 {entry.Nodes.Count} 个节点、{entry.Groups.Count} 个策略组。{note}"
                    : $"「{entry.Name}」已添加，但更新失败：{message}",
                 ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
         }
@@ -113,9 +114,10 @@ public partial class SubscriptionsViewModel : ObservableObject
         {
             var (ok, message) = await UpdateEntryAsync(item.Entry);
             AppServices.Store.Save(AppServices.Settings);
+            var note = ok ? await ApplyAsync() : "";
             Show(
                 ok ? "保存成功" : "保存成功但更新失败",
-                ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点。{RestartHint()}"
+                ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组。{note}"
                    : $"「{item.Entry.Name}」已保存，但更新失败：{message}",
                 ok ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
         }
@@ -135,9 +137,11 @@ public partial class SubscriptionsViewModel : ObservableObject
         {
             var (ok, message) = await UpdateEntryAsync(item.Entry);
             AppServices.Store.Save(AppServices.Settings);
+            var note = ok ? await ApplyAsync() : "";
             Show(
                 ok ? "更新成功" : "更新失败",
-                ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点。{RestartHint()}" : message,
+                ok ? $"「{item.Entry.Name}」：{item.Entry.Nodes.Count} 个节点、{item.Entry.Groups.Count} 个策略组。{note}"
+                   : message,
                 ok ? InfoBarSeverity.Success : InfoBarSeverity.Error);
         }
         finally
@@ -170,10 +174,11 @@ public partial class SubscriptionsViewModel : ObservableObject
                 item.IsUpdating = false;
             }
             AppServices.Store.Save(AppServices.Settings);
+            var note = failures.Count == 0 ? await ApplyAsync() : "";
             Show(
                 failures.Count == 0 ? "全部更新成功" : "部分更新失败",
                 failures.Count == 0
-                    ? $"{okCount} 个订阅全部更新成功。{RestartHint()}"
+                    ? $"{okCount} 个订阅全部更新成功。{note}"
                     : $"成功 {okCount} 个，失败 {failures.Count} 个。首个错误：{failures[0]}",
                 failures.Count == 0 ? InfoBarSeverity.Success : InfoBarSeverity.Warning);
         }
@@ -189,7 +194,7 @@ public partial class SubscriptionsViewModel : ObservableObject
         AppServices.Settings.Subscriptions.Remove(item.Entry);
         AppServices.Store.Save(AppServices.Settings);
         Reload();
-        Show("已删除", $"订阅「{item.Entry.Name}」已删除。{RestartHint()}", InfoBarSeverity.Informational);
+        Show("已删除", $"订阅「{item.Entry.Name}」已删除。重启核心后生效。", InfoBarSeverity.Informational);
     }
 
     /// <summary>下载并解析单个订阅，写回 Entry。返回 (是否成功, 错误信息)。</summary>
@@ -211,8 +216,25 @@ public partial class SubscriptionsViewModel : ObservableObject
         }
     }
 
-    private static string RestartHint() =>
-        AppServices.Runner.IsRunning ? "核心正在运行，重启核心后生效。" : "";
+    /// <summary>
+    /// 订阅数据变化后让新配置真正生效：核心在运行时按新配置重启（否则策略组页读到的
+    /// 仍是旧配置，看起来就像「策略组没加载」）；核心未运行时提示启动后生效。
+    /// </summary>
+    private static async Task<string> ApplyAsync()
+    {
+        if (!AppServices.Runner.IsRunning) return "启动核心后生效。";
+        try
+        {
+            await AppServices.Runner.StopAsync();
+            await AppServices.Runner.StartAsync();
+            _ = AppServices.ProxiesVm.RefreshAsync();
+            return "核心已按新配置重启。";
+        }
+        catch (Exception ex)
+        {
+            return $"自动重启核心失败（{ex.Message}），请手动重启核心。";
+        }
+    }
 
     private void Show(string title, string text, InfoBarSeverity severity)
     {

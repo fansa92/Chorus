@@ -55,6 +55,49 @@ public class SubscriptionEntryConverterTests
     }
 
     [Fact]
+    public void Groups_Survive_Serialize_Roundtrip()
+    {
+        // 回归：早期转换器只写 nodes，订阅里的 proxy-groups 存盘即丢，
+        // 重启应用后策略组页只剩自动生成的默认组。
+        var original = new SubscriptionEntry
+        {
+            Name = "机场A",
+            Url = "https://a.com/sub",
+            Nodes = [new NodeEntry { Protocol = "vless", Tag = "n1", Server = "b.com", ServerPort = 443 }],
+            Groups =
+            [
+                new ProxyGroup
+                {
+                    Name = "🚀 节点选择",
+                    Type = "selector",
+                    Members = ["♻️ 自动选择", "n1"],
+                    Default = "♻️ 自动选择",
+                },
+                new ProxyGroup
+                {
+                    Name = "♻️ 自动选择",
+                    Type = "urltest",
+                    Members = ["n1"],
+                    Url = "https://www.gstatic.com/generate_204",
+                    Interval = "300s",
+                },
+            ],
+        };
+
+        var json = JsonSerializer.Serialize(original, Options);
+        var back = JsonSerializer.Deserialize<SubscriptionEntry>(json, Options);
+
+        Assert.NotNull(back);
+        Assert.Equal(2, back!.Groups.Count);
+        Assert.Equal("🚀 节点选择", back.Groups[0].Name);
+        Assert.Equal("selector", back.Groups[0].Type);
+        Assert.Equal(["♻️ 自动选择", "n1"], back.Groups[0].Members);
+        Assert.Equal("♻️ 自动选择", back.Groups[0].Default);
+        Assert.Equal("urltest", back.Groups[1].Type);
+        Assert.Equal("300s", back.Groups[1].Interval);
+    }
+
+    [Fact]
     public void Effective_Nodes_Merge_Manual_And_Subscriptions()
     {
         var settings = new AppSettings

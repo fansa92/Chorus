@@ -46,6 +46,12 @@ public static class AppServices
         Core = new SingBoxCoreManager();
         Runner = new AppRunner();
 
+        // 订阅地址基本都在墙外：核心在运行时经 mixed 端口拉取，未运行时才直连
+        Subscriptions.ProxyProvider = () =>
+            Runner.IsRunning && Settings.MixedPort > 0
+                ? ("127.0.0.1", Settings.MixedPort)
+                : null;
+
         DashboardVm = new DashboardViewModel();
         SubscriptionsVm = new SubscriptionsViewModel();
         ProxiesVm = new ProxiesViewModel();

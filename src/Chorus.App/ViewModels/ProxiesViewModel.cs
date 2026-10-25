@@ -8,12 +8,12 @@ using Microsoft.UI.Xaml.Media;
 namespace Chorus.App.ViewModels;
 
 /// <summary>
-/// 策略组页（参考 Bettbox / FlClash 的 Proxies 页）：所有策略组自上而下排列，
-/// 每个组头可折叠，组内是卡片式节点列表（名称 / 协议徽标 / 延迟）。
+/// 策略组页（参考 Bettbox / FlClash 的 Proxies 宽屏布局）：所有策略组自左向右各占一列，
+/// 列内是卡片式节点列表（名称 / 协议徽标 / 延迟），列内独立垂直滚动。
 /// </summary>
 public partial class ProxiesViewModel : ObservableObject
 {
-    // 所有策略组（含被搜索过滤隐藏的），用于保留折叠状态与测速结果
+    // 所有策略组（含被搜索过滤隐藏的），用于保留测速结果
     private readonly List<ProxyGroupViewModel> _allGroups = [];
 
     public ObservableCollection<ProxyGroupViewModel> Groups { get; } = [];
@@ -47,20 +47,18 @@ public partial class ProxiesViewModel : ObservableObject
         {
             var proxies = await AppServices.Clash.GetProxiesAsync();
             var groupInfos = proxies.Values
-                .Where(p => p.Type.Equals("Selector", StringComparison.OrdinalIgnoreCase)
-                         || p.Type.Equals("URLTest", StringComparison.OrdinalIgnoreCase)
-                         || p.Type.Equals("Fallback", StringComparison.OrdinalIgnoreCase))
+                .Where(p => (p.Type.Equals("Selector", StringComparison.OrdinalIgnoreCase)
+                          || p.Type.Equals("URLTest", StringComparison.OrdinalIgnoreCase)
+                          || p.Type.Equals("Fallback", StringComparison.OrdinalIgnoreCase))
+                          // GLOBAL 是 sing-box 为兼容 Clash 面板伪造的聚合项（源码注释
+                          // "fix clash dashboard"），不在出站管理器里，选中必 404，故不展示
+                          && !p.Name.Equals("GLOBAL", StringComparison.Ordinal))
                 .OrderBy(p => p.Type.Equals("Selector", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
                 .ToList();
 
             Ui.Post(() =>
             {
-                // 记住刷新前的折叠状态与各组测速结果，刷新后按组名恢复
-                var previousExpanded = _allGroups
-                    .Where(g => g.IsExpanded)
-                    .Select(g => g.Name)
-                    .ToHashSet(StringComparer.Ordinal);
-                var hadGroups = _allGroups.Count > 0;
+                // 记住刷新前的测速结果，刷新后按 (组名, 节点名) 恢复
                 var oldDelays = _allGroups
                     .SelectMany(g => g.AllMembers)
                     .Where(m => m.DelayMs.HasValue)
@@ -89,8 +87,6 @@ public partial class ProxiesViewModel : ObservableObject
                         return member;
                     }).ToList();
                     gvm.SetMembers(members);
-                    // 首次加载默认展开第一个组；之后沿用刷新前的折叠状态
-                    gvm.IsExpanded = hadGroups ? previousExpanded.Contains(gvm.Name) : _allGroups.Count == 0;
                     _allGroups.Add(gvm);
                 }
 
@@ -104,7 +100,7 @@ public partial class ProxiesViewModel : ObservableObject
         }
     }
 
-    /// <summary>按搜索词过滤组与组内节点；有匹配的组自动展开。</summary>
+    /// <summary>按搜索词过滤组与组内节点。</summary>
     private void ApplyFilter()
     {
         var search = SearchText.Trim();
@@ -116,8 +112,6 @@ public partial class ProxiesViewModel : ObservableObject
                 && group.Members.Count == 0
                 && !group.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
                 continue; // 搜索时隐藏名称与节点都不匹配的组
-            if (search.Length > 0 && group.Members.Count > 0)
-                group.IsExpanded = true; // 有命中的节点就展开，省得用户再点一次
             Groups.Add(group);
         }
         UpdateEmptyVisibility();
@@ -137,9 +131,6 @@ public partial class ProxiesViewModel : ObservableObject
             EmptyVisibility = Visibility.Collapsed;
         }
     }
-
-    /// <summary>展开/折叠一个策略组。</summary>
-    public void ToggleExpanded(ProxyGroupViewModel group) => group.IsExpanded = !group.IsExpanded;
 
     /// <summary>在策略组里选中一个成员（节点或嵌套的策略组）。</summary>
     public async Task SelectAsync(ProxyGroupViewModel group, ProxyMemberViewModel member)
@@ -219,18 +210,12 @@ public partial class ProxyGroupViewModel : ObservableObject
     public Brush TypeBadgeBrush => IsSelectable ? AccentBrush : AutoBrush;
     public Brush TypeBadgeBackground => IsSelectable ? AccentBgBrush : AutoBgBrush;
 
-    [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private string _selectedName = "";
 
     /// <summary>组头下方的说明：类型 + 当前生效节点。</summary>
     public string SubtitleText => SelectedName.Length == 0
         ? TypeText
         : $"{TypeText} · {SelectedName}";
-
-    public Visibility MembersVisibility => IsExpanded ? Visibility.Visible : Visibility.Collapsed;
-
-    /// <summary>ChevronDown（展开）/ ChevronRight（折叠）。</summary>
-    public string ExpandGlyph => IsExpanded ? "\uE70D" : "\uE76C";
 
     /// <summary>全部成员（未过滤）。</summary>
     public ObservableCollection<ProxyMemberViewModel> AllMembers { get; } = [];
@@ -276,12 +261,6 @@ public partial class ProxyGroupViewModel : ObservableObject
                     Members.Add(m);
         }
         OnPropertyChanged(nameof(MemberCountText));
-    }
-
-    partial void OnIsExpandedChanged(bool value)
-    {
-        OnPropertyChanged(nameof(MembersVisibility));
-        OnPropertyChanged(nameof(ExpandGlyph));
     }
 
     partial void OnSelectedNameChanged(string value) => OnPropertyChanged(nameof(SubtitleText));

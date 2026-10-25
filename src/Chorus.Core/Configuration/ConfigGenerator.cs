@@ -160,9 +160,17 @@ public static partial class ConfigGenerator
                 resolved.AddRange(nodeTags);
                 continue;
             }
-            if (t is "direct" or "block")
+            // Clash 配置里的内置成员是大写（DIRECT / REJECT / REJECT-DROP），
+            // 统一映射到 sing-box 的 direct / block 出站
+            var builtin = t.ToLowerInvariant() switch
             {
-                resolved.Add(t); // 内置出站，配置中始终存在
+                "direct" => "direct",
+                "reject" or "reject-drop" or "block" => "block",
+                _ => null,
+            };
+            if (builtin is not null)
+            {
+                resolved.Add(builtin);
                 continue;
             }
             if (t != group.Name && groupNames.Contains(t, StringComparer.Ordinal))

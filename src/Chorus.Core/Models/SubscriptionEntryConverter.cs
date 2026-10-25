@@ -34,6 +34,14 @@ public sealed class SubscriptionEntryConverter : JsonConverter<SubscriptionEntry
                     entry.Nodes = JsonSerializer.Deserialize<List<NodeEntry>>(
                         nodesElement.GetRawText(), options) ?? [];
                 }
+                // 策略组必须一起读回：早期版本漏了这一段，导致订阅里的 proxy-groups
+                // 保存后丢失，重启应用就只剩自动生成的默认组
+                if (TryGetProperty(root, "groups", out var groupsElement)
+                    && groupsElement.ValueKind == JsonValueKind.Array)
+                {
+                    entry.Groups = JsonSerializer.Deserialize<List<ProxyGroup>>(
+                        groupsElement.GetRawText(), options) ?? [];
+                }
                 if (TryGetProperty(root, "lastUpdated", out var updatedElement)
                     && updatedElement.ValueKind == JsonValueKind.String
                     && DateTimeOffset.TryParse(updatedElement.GetString(), out var updated))
@@ -58,6 +66,13 @@ public sealed class SubscriptionEntryConverter : JsonConverter<SubscriptionEntry
         foreach (var node in value.Nodes)
             JsonSerializer.Serialize(writer, node, options);
         writer.WriteEndArray();
+        if (value.Groups.Count > 0)
+        {
+            writer.WriteStartArray("groups");
+            foreach (var group in value.Groups)
+                JsonSerializer.Serialize(writer, group, options);
+            writer.WriteEndArray();
+        }
         if (value.LastUpdated is { } updated)
             writer.WriteString("lastUpdated", updated);
         if (value.LastError is { } error)
