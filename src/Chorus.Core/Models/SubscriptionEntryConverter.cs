@@ -52,6 +52,19 @@ public sealed class SubscriptionEntryConverter : JsonConverter<SubscriptionEntry
                 // 规则页与生成配置都会退回「只有内置两条模式规则」
                 entry.RouteJson = GetString(root, "routeJson");
                 entry.DnsJson = GetString(root, "dnsJson");
+                if (TryGetProperty(root, "lastCheckOk", out var checkOkElement)
+                    && (checkOkElement.ValueKind == JsonValueKind.True || checkOkElement.ValueKind == JsonValueKind.False))
+                {
+                    entry.LastCheckOk = checkOkElement.ValueKind == JsonValueKind.True;
+                }
+                entry.LastCheckError = GetString(root, "lastCheckError");
+                entry.LastCheckSummary = GetString(root, "lastCheckSummary");
+                if (TryGetProperty(root, "lastCheckedAt", out var checkedElement)
+                    && checkedElement.ValueKind == JsonValueKind.String
+                    && DateTimeOffset.TryParse(checkedElement.GetString(), out var checkedAt))
+                {
+                    entry.LastCheckedAt = checkedAt;
+                }
                 if (string.IsNullOrWhiteSpace(entry.Name) && entry.Url.Length > 0)
                     entry.Name = DefaultName(entry.Url);
                 return entry;
@@ -85,6 +98,14 @@ public sealed class SubscriptionEntryConverter : JsonConverter<SubscriptionEntry
             writer.WriteString("dnsJson", dnsJson);
         if (value.LastError is { } error)
             writer.WriteString("lastError", error);
+        if (value.LastCheckOk is { } checkOk)
+            writer.WriteBoolean("lastCheckOk", checkOk);
+        if (value.LastCheckError is { } checkError)
+            writer.WriteString("lastCheckError", checkError);
+        if (value.LastCheckSummary is { } checkSummary)
+            writer.WriteString("lastCheckSummary", checkSummary);
+        if (value.LastCheckedAt is { } checkedAt)
+            writer.WriteString("lastCheckedAt", checkedAt);
         writer.WriteEndObject();
     }
 

@@ -21,10 +21,8 @@ public sealed partial class ProxiesPage : Page
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         Loaded -= OnLoaded;
-        if (AppServices.Runner.IsRunning)
-            _ = Vm.RefreshAsync();
-        else
-            Vm.StatusText = "核心未运行，启动后点刷新";
+        // 核心在跑就读实时数据；没在跑时 RefreshAsync 会铺上次的快照（不再是空白页）
+        _ = Vm.RefreshAsync();
     }
 
     private void Refresh_Click(object sender, RoutedEventArgs e)

@@ -3,6 +3,7 @@ using Chorus.App.ViewModels;
 using Chorus.Core;
 using Chorus.Core.ClashApi;
 using Chorus.Core.Models;
+using Chorus.Core.State;
 
 namespace Chorus.App.Services;
 
@@ -20,6 +21,11 @@ public static class AppServices
     public static AppSettings Settings { get; private set; } = null!;
     public static SettingsStore Store { get; } = new();
     public static SubscriptionService Subscriptions { get; } = new();
+
+    /// <summary>上一次读到的策略组快照：核心未运行时策略组页用它兜底（Bettbox 靠常驻核心，Chorus 靠快照）。</summary>
+    public static ProxySnapshotStore ProxySnapshots { get; } =
+        new(Path.Combine(DataDir, "proxies-cache.json"));
+
     public static ClashApiClient Clash { get; private set; } = null!;
     public static SingBoxCoreManager Core { get; private set; } = null!;
     public static AppRunner Runner { get; private set; } = null!;

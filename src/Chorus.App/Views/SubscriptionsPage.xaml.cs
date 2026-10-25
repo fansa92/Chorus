@@ -43,6 +43,13 @@ public sealed partial class SubscriptionsPage : Page
             await Vm.UpdateAsync(item);
     }
 
+    /// <summary>只检查配置是否可用（sing-box check），不重新下载、不重启核心。</summary>
+    private async void CheckItem_Click(object sender, RoutedEventArgs e)
+    {
+        if (ItemOf(sender) is { } item)
+            await Vm.CheckAsync(item);
+    }
+
     private async void EditItem_Click(object sender, RoutedEventArgs e)
     {
         if (ItemOf(sender) is not { } item) return;

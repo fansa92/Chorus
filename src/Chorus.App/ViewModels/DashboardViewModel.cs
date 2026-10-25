@@ -30,6 +30,7 @@ public partial class DashboardViewModel : ObservableObject
     private const int MemoryHistoryLength = 60;
 
     private readonly DispatcherQueueTimer _timer;
+    private readonly DispatcherQueue _ui;
     private readonly AutoHide _hintHide;
     private readonly AutoHide _errorHide;
 
@@ -39,6 +40,15 @@ public partial class DashboardViewModel : ObservableObject
     private long _totalDown;
     private long _memoryPeak;
     private bool _toggling;
+
+    /// <summary>检测轮次：切换节点/模式后旧请求的结果可能后到，靠它作废过期结果。</summary>
+    private int _detectGeneration;
+
+    /// <summary>检测进行中又来了新的刷新请求（比如连续切换节点），当前这轮结束后补一次。</summary>
+    private bool _detectQueued;
+
+    /// <summary>延迟触发的检测（切节点后给核心一点时间让新出站生效）。</summary>
+    private CancellationTokenSource? _detectDelayCts;
 
     private readonly Queue<double> _upHistory = new(SpeedHistoryLength + 1);
     private readonly Queue<double> _downHistory = new(SpeedHistoryLength + 1);
@@ -84,6 +94,9 @@ public partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private bool _directMode;
     [ObservableProperty] private int _connectionCount;
 
+    /// <summary>核心当前所处的出站模式。</summary>
+    private string _mode = "rule";
+
     [ObservableProperty] private bool _systemProxyOn;
     [ObservableProperty] private bool _tunOn;
     [ObservableProperty] private bool _allowLanOn;
@@ -107,7 +120,8 @@ public partial class DashboardViewModel : ObservableObject
 
     public DashboardViewModel()
     {
-        _timer = DispatcherQueue.GetForCurrentThread().CreateTimer();
+        _ui = DispatcherQueue.GetForCurrentThread();
+        _timer = _ui.CreateTimer();
         _timer.Interval = TimeSpan.FromSeconds(1);
         _timer.Tick += (_, _) => OnTick();
         _timer.Start();
@@ -133,7 +147,7 @@ public partial class DashboardViewModel : ObservableObject
                 _startedAt = DateTimeOffset.Now;
                 ResetCounters();
                 _ = RefreshModeAsync();
-                _ = DetectLaterAsync(); // 核心刚起来时 Clash API 还没就绪，等一会儿再测
+                DetectLaterAsync(); // 核心刚起来时 Clash API 还没就绪，等一会儿再测
             }
             else
             {
@@ -269,20 +283,60 @@ public partial class DashboardViewModel : ObservableObject
 
     // ---- 网络检测 ----
 
-    private async Task DetectLaterAsync()
+    /// <summary>核心刚起来时入站监听还没就绪，等一会儿再测，否则第一轮必然失败。</summary>
+    private void DetectLaterAsync() => RequestDetect(3000);
+
+    /// <summary>
+    /// 在策略组页切换节点 / 切换出站模式后调用：出口换了，网络检测里的 IP、地区、延迟
+    /// 都必须是新节点的。Bettbox 换节点后也是立刻重查一次出口 IP（closeConnections + checkIp）。
+    /// </summary>
+    public void RefreshAfterNodeSwitch(string? nodeName = null)
     {
-        // 核心刚起来时入站监听还没就绪，等一会儿再测，否则第一轮必然失败
-        await Task.Delay(3000);
-        await DetectAsync();
+        DetectStatusText = nodeName is null
+            ? "出口已切换，正在刷新网络信息…"
+            : $"已切换到「{nodeName}」，正在刷新网络信息…";
+        // 给核心几百毫秒让 selector 的新出站生效，否则测到的可能还是旧链路
+        RequestDetect(700);
     }
+
+    /// <summary>延迟发起一轮检测（会作废之前尚未返回的结果）。</summary>
+    public void RequestDetect(int delayMs)
+    {
+        var generation = ++_detectGeneration;
+        _detectDelayCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _detectDelayCts = cts;
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                if (delayMs > 0) await Task.Delay(delayMs, cts.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            if (cts.IsCancellationRequested || generation != _detectGeneration) return;
+            // 回到 UI 线程再改可观察属性：x:Bind 的 OneWay 更新必须在 UI 线程上发生
+            _ui.TryEnqueue(() => _ = DetectAsync(generation));
+        });
+    }
+
+    /// <summary>立即检测（「重新检测」按钮、核心启动后自动调用）。</summary>
+    public Task DetectAsync() => DetectAsync(++_detectGeneration);
 
     /// <summary>
     /// 网络检测：量一次 HTTP 往返延迟 + 查出口 IP / 地区 / 运营商。
     /// 核心在跑就走混合端口（看到的是代理出口），否则直连；代理路径整个没响应时再直连兜底一次。
     /// </summary>
-    public async Task DetectAsync()
+    private async Task DetectAsync(int generation)
     {
-        if (!CanDetect) return;
+        if (!CanDetect)
+        {
+            // 已经在测：记下来，等这一轮结束再补一轮，别把用户刚切节点后的刷新吞掉
+            _detectQueued = true;
+            return;
+        }
         CanDetect = false;
         DetectStatusText = "正在检测…";
 
@@ -308,6 +362,15 @@ public partial class DashboardViewModel : ObservableObject
         var (latency, info, error) = result;
         Ui.Post(() =>
         {
+            CanDetect = true;
+
+            // 期间又切换了节点：这一轮测的是上个出口，直接丢掉，改用最新一轮的结果
+            if (generation != _detectGeneration)
+            {
+                RunQueuedDetect();
+                return;
+            }
+
             if (info is not null)
             {
                 IpText = info.Ip;
@@ -339,8 +402,16 @@ public partial class DashboardViewModel : ObservableObject
                 : via == "直连回退"
                     ? "代理路径未响应，以上为直连结果 · 点右上「重新检测」"
                     : $"{via}检测 · 点右上「重新检测」刷新";
-            CanDetect = true;
+
+            RunQueuedDetect();
         });
+    }
+
+    private void RunQueuedDetect()
+    {
+        if (!_detectQueued) return;
+        _detectQueued = false;
+        RequestDetect(200);
     }
 
     /// <summary>跑一轮探测：延迟与 IP 并行，各自带超时（某个接口被墙不会拖死另一个）。</summary>
@@ -394,7 +465,13 @@ public partial class DashboardViewModel : ObservableObject
         try
         {
             await AppServices.Clash.SetModeAsync(mode);
-            Ui.Post(() => ApplyMode(mode));
+            Ui.Post(() =>
+            {
+                ApplyMode(mode);
+                // 直连 / 全局模式下出口完全变了，网络检测里的 IP 与延迟要跟着刷新
+                DetectStatusText = $"已切换到「{ModeText}」模式，正在刷新网络信息…";
+                RequestDetect(600);
+            });
         }
         catch (Exception ex)
         {
@@ -404,6 +481,7 @@ public partial class DashboardViewModel : ObservableObject
 
     private void ApplyMode(string mode)
     {
+        _mode = mode;
         ModeText = mode switch
         {
             "global" => "全局",
@@ -414,6 +492,13 @@ public partial class DashboardViewModel : ObservableObject
         GlobalMode = mode == "global";
         DirectMode = mode == "direct";
     }
+
+    /// <summary>
+    /// 当前出站模式（rule / global / direct）。
+    /// RadioButton 的 Checked 事件在「IsChecked 由 VM 回填」时也会触发，
+    /// 界面要用它把那种回填和用户真实点击区分开。
+    /// </summary>
+    public bool IsMode(string mode) => _mode == mode;
 
     // ---- 活动连接 ----
 

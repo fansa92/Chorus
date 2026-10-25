@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Chorus.App.Services;
 using Chorus.Core;
+using Chorus.Core.Configuration;
 using Chorus.Core.Models;
 
 namespace Chorus.App.ViewModels;
@@ -391,9 +392,37 @@ public partial class SubscriptionsViewModel : ObservableObject
     /// <summary>下载并解析单个订阅，写回 Entry。返回 (是否成功, 提示信息)。</summary>
     private static async Task<(bool Ok, string Message)> UpdateEntryAsync(SubscriptionEntry entry)
     {
+        // 先把上一份可用数据留住：新配置没通过检查就原样回滚
+        // （Bettbox 切换配置失败时会回退到上一份，这里在落盘之前就做完同样的「先验证再采用」）
+        var previous = (entry.Nodes, entry.Groups, entry.RouteJson, entry.DnsJson);
         try
         {
             var (nodes, groups, routing, errors) = await AppServices.Subscriptions.ImportFullAsync(entry.Url);
+
+            var candidate = new SubscriptionEntry
+            {
+                Name = entry.Name,
+                Url = entry.Url,
+                Nodes = nodes,
+                Groups = groups,
+                RouteJson = routing?.RouteJson,
+                DnsJson = routing?.DnsJson,
+            };
+
+            // sing-box 自带 check 子命令：把这份订阅当作当前配置渲染一遍再校验，
+            // 不需要额外组件、不启动核心、不占端口
+            var report = await RunCheckAsync(candidate);
+            ApplyCheckReport(entry, report);
+            if (report.Failed)
+            {
+                entry.Nodes = previous.Nodes;
+                entry.Groups = previous.Groups;
+                entry.RouteJson = previous.RouteJson;
+                entry.DnsJson = previous.DnsJson;
+                entry.LastError = "新配置未通过检查，已保留上一份可用配置。";
+                return (false, entry.LastError + "（" + report.Error + "）");
+            }
+
             entry.Nodes = nodes;
             entry.Groups = groups;
             // 订阅自带的 route/dns 要跟着存下来：它们既决定规则页显示什么，
@@ -404,13 +433,81 @@ public partial class SubscriptionsViewModel : ObservableObject
             entry.LastError = errors.Count > 0 ? errors[0] : null;
             var detail = AppServices.Subscriptions.LastFetchDetail;
             var routingNote = routing?.HasAny == true ? "（含订阅路由规则）" : "";
-            return (true, detail is null ? routingNote : $"{detail}{routingNote}");
+            var checkNote = report.Status == ConfigCheckStatus.Skipped
+                ? "（未找到核心，已跳过配置检查）"
+                : "";
+            var parts = new[] { detail ?? "", checkNote, routingNote }.Where(p => p.Length > 0).ToArray();
+            return (true, string.Join(" ", parts));
         }
         catch (Exception ex)
         {
             entry.LastError = ex.Message;
             return (false, ex.Message);
         }
+    }
+
+    /// <summary>
+    /// 手动检查一份订阅的配置：只做静态校验（sing-box check），不更新、不重启核心。
+    /// </summary>
+    public async Task CheckAsync(SubscriptionItemViewModel item)
+    {
+        if (item.IsUpdating || IsBusy) return;
+        item.IsUpdating = true;
+        UpdatingCount++;
+        try
+        {
+            var report = await RunCheckAsync(item.Entry);
+            ApplyCheckReport(item.Entry, report);
+            AppServices.Store.Save(AppServices.Settings);
+            Show(
+                report.Status switch
+                {
+                    ConfigCheckStatus.Passed => "配置检查通过",
+                    ConfigCheckStatus.Skipped => "未执行配置检查",
+                    _ => "配置检查未通过",
+                },
+                report.Describe(),
+                report.Status switch
+                {
+                    ConfigCheckStatus.Passed => InfoBarSeverity.Success,
+                    ConfigCheckStatus.Skipped => InfoBarSeverity.Informational,
+                    _ => InfoBarSeverity.Error,
+                });
+        }
+        finally
+        {
+            item.IsUpdating = false;
+            UpdatingCount--;
+            Reload();
+        }
+    }
+
+    /// <summary>用核心路径组一个检查器；机器上没有 sing-box.exe 时返回 null（记为跳过）。</summary>
+    private static Func<string, Task>? CreateChecker()
+    {
+        var corePath = AppServices.ResolveCorePath();
+        if (!File.Exists(corePath)) return null;
+        return path =>
+        {
+            AppServices.Core.CorePath = corePath;
+            return AppServices.Core.CheckAsync(path);
+        };
+    }
+
+    private static Task<ConfigCheckReport> RunCheckAsync(SubscriptionEntry entry) =>
+        SubscriptionCheck.RunAsync(AppServices.Settings, entry, CreateChecker());
+
+    private static void ApplyCheckReport(SubscriptionEntry entry, ConfigCheckReport report)
+    {
+        entry.LastCheckedAt = DateTimeOffset.Now;
+        entry.LastCheckSummary = report.Summary;
+        entry.LastCheckOk = report.Status switch
+        {
+            ConfigCheckStatus.Passed => true,
+            ConfigCheckStatus.Failed => false,
+            _ => null, // 跳过：不谎报通过
+        };
+        entry.LastCheckError = report.Failed ? report.Error : null;
     }
 
     /// <summary>
@@ -538,6 +635,30 @@ public partial class SubscriptionItemViewModel : ObservableObject
     /// <summary>错误详情（有失败时显示在卡片下方）。</summary>
     public string ErrorText => HasError ? $"上次更新失败：{Entry.LastError}" : "";
     public Visibility ErrorVisibility => HasError ? Visibility.Visible : Visibility.Collapsed;
+
+    // ---------- 配置检查（sing-box check） ----------
+
+    /// <summary>是否检查过（跳过也算检查过，只是不算通过）。</summary>
+    public bool HasCheck => Entry.LastCheckedAt is not null;
+
+    public Visibility CheckVisibility => HasCheck ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>卡片上的检查结论：通过时给规模，失败时给原因。</summary>
+    public string CheckText => Entry.LastCheckOk switch
+    {
+        true => $"配置检查通过 · {Entry.LastCheckSummary}（{CheckTimeText}）",
+        false => $"配置检查未通过：{Entry.LastCheckError ?? "未知错误"}（{CheckTimeText}）",
+        _ => $"已跳过配置检查（未找到 sing-box.exe）· {Entry.LastCheckSummary}（{CheckTimeText}）",
+    };
+
+    public Brush CheckBrush => Entry.LastCheckOk switch
+    {
+        true => OkBrush,
+        false => ErrorBrush,
+        _ => WarnBrush,
+    };
+
+    private string CheckTimeText => Entry.LastCheckedAt is { } at ? at.LocalDateTime.ToString("MM-dd HH:mm") : "";
 
     /// <summary>更新中时按钮换成进度环。</summary>
     public Visibility UpdateButtonVisibility => IsUpdating ? Visibility.Collapsed : Visibility.Visible;

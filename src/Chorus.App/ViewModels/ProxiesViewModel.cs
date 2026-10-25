@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Chorus.App.Services;
 using Chorus.Core.ClashApi;
+using Chorus.Core.State;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 
@@ -15,6 +16,8 @@ public partial class ProxiesViewModel : ObservableObject
     // 所有策略组（含被搜索过滤隐藏的），用于保留测速结果
     private readonly List<ProxyGroupViewModel> _allGroups = [];
     private bool _refreshing;
+    private int _lastProxyCount;
+    private string _lastConfigLabel = "全部订阅合并";
 
     /// <summary>当前展示的策略组标签（过滤后的快照，整体替换而不是逐条增删）。</summary>
     [ObservableProperty] private IReadOnlyList<ProxyGroupViewModel> _groups = [];
@@ -33,12 +36,43 @@ public partial class ProxiesViewModel : ObservableObject
     /// <summary>正在从核心拉取策略组（页面显示「正在加载」而不是一片空白）。</summary>
     [ObservableProperty] private bool _isLoading;
 
+    /// <summary>
+    /// 当前展示的是否为「上次读取的快照」（核心未运行）。
+    /// Bettbox 的核心随应用启动、配置常驻内存，所以没启动代理也能列组；
+    /// Chorus 的核心是独立进程，未运行时用落盘快照兜底，行为上对齐。
+    /// </summary>
+    [ObservableProperty] private bool _fromCache;
+
     /// <summary>当前组内容（阵列）是否可见。</summary>
     public Visibility ContentVisibility
         => SelectedGroup is not null && !IsLoading ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>加载中的提示是否可见。</summary>
     public Visibility LoadingVisibility => IsLoading ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>「核心未运行，以下是上次读取的快照」提示条的可见性。</summary>
+    public Visibility CacheNoteVisibility => FromCache ? Visibility.Visible : Visibility.Collapsed;
+
+    public string CacheNoteText => "核心未运行，下面显示的是上次读取的策略组快照（只读）。启动核心后即可切换节点与测速。";
+
+    partial void OnFromCacheChanged(bool value) => OnPropertyChanged(nameof(CacheNoteVisibility));
+
+    public ProxiesViewModel()
+    {
+        // 核心停止后立刻回落到快照，避免策略组页变成空白；核心启动后再拉真实数据
+        AppServices.Runner.StatusChanged += running => Ui.Post(() =>
+        {
+            if (running)
+            {
+                FromCache = false;
+                _ = RefreshAsync();
+            }
+            else
+            {
+                RestoreSnapshot();
+            }
+        });
+    }
 
     partial void OnSearchTextChanged(string value) => ApplyFilter();
 
@@ -64,15 +98,7 @@ public partial class ProxiesViewModel : ObservableObject
         if (_refreshing) return; // 连点刷新 / 页面重复进入时只跑一次
         if (!AppServices.Runner.IsRunning)
         {
-            Ui.Post(() =>
-            {
-                StatusText = "核心未运行";
-                _allGroups.Clear();
-                Groups = [];
-                IsLoading = false;
-                EmptyText = "核心未运行，启动后点刷新";
-                UpdateEmptyVisibility();
-            });
+            Ui.Post(RestoreSnapshot);
             return;
         }
 
@@ -199,6 +225,7 @@ public partial class ProxiesViewModel : ObservableObject
             }
 
             IsLoading = false;
+            FromCache = false;
             SelectGroup(previousGroupName is null
                 ? _allGroups.FirstOrDefault()
                 : _allGroups.FirstOrDefault(g => g.Name == previousGroupName) ?? _allGroups.FirstOrDefault());
@@ -207,8 +234,78 @@ public partial class ProxiesViewModel : ObservableObject
             var active = AppServices.Settings.ActiveSubscription();
             var configLabel = active is null ? "全部订阅合并" : $"配置「{active.Name}」";
             StatusText = $"已加载 {_allGroups.Count} 个策略组 · {proxies.Count} 个出站 · {configLabel}";
+            _lastProxyCount = proxies.Count;
+            _lastConfigLabel = configLabel;
+            PersistSnapshot();
         });
         return true;
+    }
+
+    /// <summary>核心未运行时：把上次成功读取的策略组快照铺回页面（只读）。</summary>
+    private void RestoreSnapshot()
+    {
+        var snapshot = AppServices.ProxySnapshots.Load();
+        if (snapshot is null)
+        {
+            FromCache = false;
+            _allGroups.Clear();
+            Groups = [];
+            IsLoading = false;
+            StatusText = "核心未运行";
+            EmptyText = "核心未运行，启动后点刷新";
+            UpdateEmptyVisibility();
+            return;
+        }
+
+        var previousGroupName = SelectedGroup?.Name;
+        _allGroups.Clear();
+        foreach (var group in snapshot.Groups)
+        {
+            var gvm = new ProxyGroupViewModel(group.Name, group.Type) { SelectedName = group.Now };
+            var members = group.Members.Select(m => new ProxyMemberViewModel(gvm, m.Name)
+            {
+                ProtocolType = m.Type,
+                IsSelected = m.Selected,
+                DelayMs = m.DelayMs,
+            }).ToList();
+            gvm.SetMembers(members);
+            _allGroups.Add(gvm);
+        }
+
+        FromCache = true;
+        IsLoading = false;
+        SelectGroup(previousGroupName is null
+            ? _allGroups.FirstOrDefault()
+            : _allGroups.FirstOrDefault(g => g.Name == previousGroupName) ?? _allGroups.FirstOrDefault());
+        ApplyFilter();
+        StatusText = $"核心未运行 · 上次加载 {_allGroups.Count} 组（{snapshot.SavedAt.ToLocalTime():MM-dd HH:mm}）· 只读";
+    }
+
+    /// <summary>把当前组与节点（含选中项、测速结果）写成快照，供核心停止后展示。</summary>
+    private void PersistSnapshot()
+    {
+        if (_allGroups.Count == 0) return;
+        var snapshot = new ProxySnapshot
+        {
+            SavedAt = DateTimeOffset.Now,
+            Source = _lastConfigLabel,
+            ProxyCount = _lastProxyCount,
+            Groups = _allGroups.Select(group => new ProxySnapshotGroup
+            {
+                Name = group.Name,
+                Type = group.RawType,
+                Now = group.SelectedName,
+                Members = group.AllMembers.Select(member => new ProxySnapshotMember
+                {
+                    Name = member.Name,
+                    Type = member.ProtocolType,
+                    DelayMs = member.DelayMs,
+                    Selected = member.IsSelected,
+                }).ToList(),
+            }).ToList(),
+        };
+        // 落盘放后台：磁盘再快也不该卡住点击后的重绘
+        _ = Task.Run(() => AppServices.ProxySnapshots.Save(snapshot));
     }
 
     /// <summary>按搜索词过滤组与组内节点。</summary>
@@ -258,6 +355,11 @@ public partial class ProxiesViewModel : ObservableObject
     public async Task SelectAsync(ProxyGroupViewModel group, ProxyMemberViewModel member)
     {
         if (group.SelectedName == member.Name) return;
+        if (!AppServices.Runner.IsRunning)
+        {
+            Ui.Post(() => StatusText = "核心未运行，启动后才能切换节点（当前显示的是上次读取的快照）");
+            return;
+        }
         try
         {
             await AppServices.Clash.SelectAsync(group.Name, member.Name);
@@ -267,6 +369,9 @@ public partial class ProxiesViewModel : ObservableObject
                 foreach (var m in group.AllMembers)
                     m.IsSelected = m.Name == member.Name;
                 StatusText = $"{group.Name} → {member.Name}";
+                PersistSnapshot();
+                // 出口换了，仪表盘的网络检测必须跟着刷新（Bettbox 换节点后也会重查出口 IP）
+                AppServices.DashboardVm.RefreshAfterNodeSwitch(member.Name);
             });
         }
         catch (Exception ex)
@@ -278,6 +383,11 @@ public partial class ProxiesViewModel : ObservableObject
     public async Task TestGroupDelayAsync(ProxyGroupViewModel group)
     {
         if (group.Members.Count == 0) return;
+        if (!AppServices.Runner.IsRunning)
+        {
+            Ui.Post(() => StatusText = "核心未运行，测速不可用（当前显示的是上次读取的快照）");
+            return;
+        }
         Ui.Post(() => StatusText = $"正在测速：{group.Name}…");
         using var gate = new SemaphoreSlim(4, 4);
         var tasks = group.Members.Select(async member =>
@@ -298,7 +408,11 @@ public partial class ProxiesViewModel : ObservableObject
             }
         });
         await Task.WhenAll(tasks);
-        Ui.Post(() => StatusText = $"{group.Name} 测速完成");
+        Ui.Post(() =>
+        {
+            StatusText = $"{group.Name} 测速完成";
+            PersistSnapshot(); // 测速结果也记进快照，核心停了还能看到上次的延迟
+        });
     }
 
     public async Task TestAllGroupsAsync()

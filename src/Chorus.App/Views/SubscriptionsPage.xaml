@@ -117,6 +117,12 @@
                                 <TextBlock Text="{x:Bind ErrorText}" FontSize="11"
                                            Foreground="#D13438" TextWrapping="Wrap"
                                            Visibility="{x:Bind ErrorVisibility}" />
+                                <!-- 配置检查结论：更新/添加时自动跑一遍 sing-box check，也可手动复查 -->
+                                <TextBlock Text="{x:Bind CheckText}" FontSize="11"
+                                           Foreground="{x:Bind CheckBrush}"
+                                           TextWrapping="Wrap" MaxLines="3"
+                                           TextTrimming="CharacterEllipsis"
+                                           Visibility="{x:Bind CheckVisibility}" />
                             </StackPanel>
 
                             <!-- 操作区：更新 / 编辑 / 删除（更新中换成进度环） -->
@@ -129,13 +135,22 @@
                                         IsEnabled="{x:Bind ButtonsEnabled}"
                                         Visibility="{x:Bind UpdateButtonVisibility}" />
                                 <Button Padding="8,4" FontSize="12"
+                                        Tag="{x:Bind}" Click="CheckItem_Click"
+                                        AutomationProperties.Name="检查配置"
+                                        IsEnabled="{x:Bind ButtonsEnabled}"
+                                        ToolTipService.ToolTip="检查配置是否可用（sing-box check 静态校验，不启动核心）">
+                                    <FontIcon Glyph="&#xE73E;" FontSize="12" />
+                                </Button>
+                                <Button Padding="8,4" FontSize="12"
                                         Tag="{x:Bind}" Click="EditItem_Click"
+                                        AutomationProperties.Name="编辑订阅"
                                         IsEnabled="{x:Bind ButtonsEnabled}"
                                         ToolTipService.ToolTip="编辑名称或链接">
                                     <FontIcon Glyph="&#xE70F;" FontSize="12" />
                                 </Button>
                                 <Button Padding="8,4" FontSize="12"
                                         Tag="{x:Bind}" Click="RemoveItem_Click"
+                                        AutomationProperties.Name="删除订阅"
                                         IsEnabled="{x:Bind ButtonsEnabled}"
                                         ToolTipService.ToolTip="删除订阅">
                                     <FontIcon Glyph="&#xE74D;" FontSize="12" />

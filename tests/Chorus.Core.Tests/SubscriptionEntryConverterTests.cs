@@ -98,6 +98,29 @@ public class SubscriptionEntryConverterTests
     }
 
     [Fact]
+    public void Check_Result_Fields_RoundTrip()
+    {
+        var original = new SubscriptionEntry
+        {
+            Name = "机场A",
+            Url = "https://a.com/sub",
+            LastCheckOk = false,
+            LastCheckError = "outbounds[0]: unknown outbound type: bogus",
+            LastCheckSummary = "1 个节点 · 1 个策略组 · 2 条路由规则 · 0 个规则集",
+            LastCheckedAt = new DateTimeOffset(2026, 10, 25, 15, 0, 0, TimeSpan.FromHours(8)),
+        };
+
+        var json = JsonSerializer.Serialize(original, Options);
+        var back = JsonSerializer.Deserialize<SubscriptionEntry>(json, Options);
+
+        Assert.NotNull(back);
+        Assert.False(back!.LastCheckOk);
+        Assert.Equal("outbounds[0]: unknown outbound type: bogus", back.LastCheckError);
+        Assert.Equal("1 个节点 · 1 个策略组 · 2 条路由规则 · 0 个规则集", back.LastCheckSummary);
+        Assert.Equal(new DateTimeOffset(2026, 10, 25, 15, 0, 0, TimeSpan.FromHours(8)), back.LastCheckedAt);
+    }
+
+    [Fact]
     public void Effective_Nodes_Merge_Manual_And_Subscriptions()
     {
         var settings = new AppSettings

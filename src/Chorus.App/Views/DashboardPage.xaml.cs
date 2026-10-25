@@ -35,8 +35,12 @@ public sealed partial class DashboardPage : Page
 
     private async void Mode_Checked(object sender, RoutedEventArgs e)
     {
-        if (sender is RadioButton { Tag: string mode })
-            await Vm.SetModeAsync(mode);
+        if (sender is not RadioButton { Tag: string mode } radio) return;
+        // IsChecked 由 VM 回填时也会触发 Checked（切回仪表盘页重新绑定就会来一次）。
+        // 回填时核心的模式已经等于这个值，不是用户的操作：不能再打一次 API，
+        // 更不能覆盖「已切换到某节点，正在刷新网络信息…」的提示。
+        if (radio.IsChecked != true || Vm.IsMode(mode)) return;
+        await Vm.SetModeAsync(mode);
     }
 
     private async void CloseConnections_Click(object sender, RoutedEventArgs e)

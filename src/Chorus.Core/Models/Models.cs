@@ -69,6 +69,18 @@ public sealed class SubscriptionEntry
 
     public DateTimeOffset? LastUpdated { get; set; }
     public string? LastError { get; set; }
+
+    /// <summary>最近一次配置检查是否通过（sing-box check）。null = 还没检查过。</summary>
+    public bool? LastCheckOk { get; set; }
+
+    /// <summary>检查失败时的原因（已去掉 sing-box 的日志前缀与临时文件路径）。</summary>
+    public string? LastCheckError { get; set; }
+
+    /// <summary>最近一次配置检查的时间。</summary>
+    public DateTimeOffset? LastCheckedAt { get; set; }
+
+    /// <summary>检查通过时的规模摘要，如「63 个节点 · 16 个策略组 · 14 条路由规则 · 12 个规则集」。</summary>
+    public string? LastCheckSummary { get; set; }
 }
 
 public sealed class AppSettings

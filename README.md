@@ -1,10 +1,20 @@
-# Chorus（合唱）
+<p align="center">
+  <img src="docs/icon.png" width="112" height="112" alt="Chorus 图标">
+</p>
 
-一个 Windows 原生的 [sing-box](https://sing-box.sagernet.org/) 图形客户端，使用 **WinUI 3 / C# / .NET 10** 构建。
+<h1 align="center">Chorus（合唱）</h1>
 
-[![CI](https://github.com/fansa92/Chorus/actions/workflows/ci.yml/badge.svg)](https://github.com/fansa92/Chorus/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/fansa92/Chorus)](https://github.com/fansa92/Chorus/releases)
-[![License](https://img.shields.io/github/license/fansa92/Chorus)](LICENSE)
+<p align="center">一个 Windows 原生的 <a href="https://sing-box.sagernet.org/">sing-box</a> 图形客户端 · WinUI 3 / C# / .NET 10</p>
+
+<p align="center">
+  <a href="https://github.com/fansa92/Chorus/actions/workflows/ci.yml"><img src="https://github.com/fansa92/Chorus/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/fansa92/Chorus/releases"><img src="https://img.shields.io/github/v/release/fansa92/Chorus" alt="Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/fansa92/Chorus" alt="License"></a>
+</p>
+
+<p align="center">
+  <sub>设计理念来源于 <a href="https://github.com/appshubcc/Bettbox">Bettbox</a>（appshubcc/Bettbox）：界面布局、交互逻辑与视觉风格均参考该项目。</sub>
+</p>
 
 > 名字由来：sing-box 的 **sing** → 一组节点像合唱团（chorus）一样协同工作。
 
@@ -12,7 +22,7 @@
 
 ## 界面
 
-界面布局参考 [Bettbox](https://github.com/fanx-dev/Bettbox)：左侧导航 + 卡片式内容区。应用图标同样是圆角方形瓦片式的 WinUI 风格（渐变底 + 白色图形），任务栏、托盘和侧栏共用同一套视觉。
+界面布局参考 [Bettbox](https://github.com/appshubcc/Bettbox)：左侧导航 + 卡片式内容区。应用图标同样是圆角方形瓦片式的 WinUI 风格（渐变底 + 白色图形），任务栏、托盘和侧栏共用同一套视觉。
 
 **仪表盘** —— 运行开关（显示运行时长）、流量统计（实时上下行 + 走势曲线 + 累计流量）、内核内存（工作集均值/峰值 + 走势）、网络检测（出口国家的国旗 + IP / 地区 / 运营商 / 延迟）、出站模式、活动连接（含一键断开）、快捷开关。
 ![仪表盘](docs/screenshots/dashboard.png)
@@ -53,13 +63,15 @@ DNS 服务器与 DNS 规则：
 - 左侧导航：仪表盘 / 策略组 / 规则 / 订阅 / 日志 / 设置
 - 仪表盘卡片：运行开关（显示运行时长）、**流量统计**（实时上传/下载速度 + 曲线 + 累计流量，一张卡说完）、**内核内存**（核心进程工作集，每 2 秒采样，给均值与峰值 + 走势）、**网络检测**（经当前代理端口测出口 IP / 地区 / 运营商 / 延迟，并按国家代码显示国旗，可一键重测）、出站模式（规则 / 全局 / 直连，经 Clash API 实时切换）、活动连接（含一键断开全部）、快捷开关（系统代理 / TUN / 允许局域网）
 - 提示条（信息 / 警告 / 错误）几秒后自动消失（4 / 6 / 8 秒），也可以手动关掉
-- 策略组：**每个策略组一个切换标签，组内节点阵列式排布**；按名称搜索、单组测速、全部测速、点击节点切换
+- 策略组：**每个策略组一个切换标签，组内节点阵列式排布**；按名称搜索、单组测速、全部测速、点击节点切换；**核心未运行时显示上次读取的策略组快照（只读）**，不再是一片空白
+- 切换节点、切换出站模式后**自动重测网络信息**（出口 IP / 地区 / 运营商 / 延迟都跟着新出口走；连续切换会作废旧请求，只采用最新结果）
 - 日志页：250ms 合批渲染；来源（核心 / 应用）、级别、模块三类筛选 + 关键词搜索（空格分隔多个条件 AND）；点行展开看原始负载，可复制 / 只看此模块 / 导出；自动滚动可关，翻上去看历史时不会被打断
 - 规则页：路由规则 / 规则集 / DNS 三个标签，从**实际生成的配置**解析，条件翻中文，可展开原始 JSON；规则集支持一键清缓存重新下载
 
 **订阅**
 
 - 多订阅管理：添加 / 更新 / 全部更新 / 编辑 / 删除（删除有二次确认），每个订阅独立保存节点与更新状态
+- **配置检查**：添加或更新订阅后，把这份订阅单独渲染成 `config.json` 交给 sing-box 自带的检查器（`sing-box check`）静态校验——不启动核心、不占端口、不需要额外组件。检查不通过时**保留上一份可用配置**并把原因写在卡片上；卡片上也有手动「检查」按钮（未找到 `sing-box.exe` 时如实标注「已跳过」）
 - **选择当前使用的配置**：点卡片即切换，只有选中的那份参与生成配置（节点、策略组、以及它自带的 route/dns 都跟着换），手动节点始终附加；未选择时退回「全部合并」的旧行为
 - 订阅自带的 `route` / `dns`（含远程规则集）会合并进生成的配置：校验出站与规则集引用、剔除悬空项、修好 `dns.final` 与 `route.default_domain_resolver`，去掉订阅里的 `clash_mode` 内置规则避免与 Chorus 自己的冲突
 - 支持手动粘贴分享链接（`ss` / `vmess` / `vless` / `trojan` / `hysteria2` / `anytls`）与 sing-box 原生 JSON 订阅
@@ -92,7 +104,7 @@ DNS 服务器与 DNS 规则：
 | MVVM | CommunityToolkit.Mvvm 8.4 |
 | 托盘 | H.NotifyIcon.WinUI |
 | 核心 | sing-box ≥ 1.12（CI 打包最新稳定版，位于 `core\sing-box.exe`） |
-| 测试 | xUnit（106 个用例，`Chorus.Core` 跨平台可跑） |
+| 测试 | xUnit（119 个用例，`Chorus.Core` 跨平台可跑） |
 
 ## 目录结构
 
