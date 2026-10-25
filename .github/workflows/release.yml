@@ -36,6 +36,30 @@ jobs:
           Copy-Item sb/*/sing-box.exe publish/core/
           Write-Output "已打包核心: $($asset.name)"
 
+      - name: 校验发布包（不含用户配置、内置核心）
+        shell: pwsh
+        run: |
+          $files = Get-ChildItem publish -Recurse -File
+
+          # 用户自己的 settings.json（里面有订阅链接）与核心缓存绝不能进包
+          $banned = $files | Where-Object {
+              $_.Name -in @('settings.json', 'config.json', 'crash.log', 'cache.db') -or
+              $_.Extension -in @('.db', '.log')
+          }
+          if ($banned) { throw "发布包里出现了用户配置或缓存：`n$($banned.FullName -join "`n")" }
+
+          # 只允许 .NET 自带的几个 json
+          $unexpected = $files | Where-Object {
+              $_.Name -like '*.json' -and
+              $_.Name -notlike '*.deps.json' -and
+              $_.Name -notlike '*.runtimeconfig.json' -and
+              $_.Name -notlike 'workloads*.json'
+          }
+          if ($unexpected) { throw "发布包里出现了非预期的 json：`n$($unexpected.FullName -join "`n")" }
+
+          if (-not (Test-Path publish/core/sing-box.exe)) { throw "发布包缺少 core/sing-box.exe" }
+          Write-Output "发布包校验通过：无用户配置、无缓存、核心已内置"
+
       - name: 打包 zip
         shell: pwsh
         run: Compress-Archive -Path publish/* -DestinationPath Chorus-win-x64.zip -Force

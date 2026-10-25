@@ -89,7 +89,7 @@ DNS 服务器与 DNS 规则：
 | MVVM | CommunityToolkit.Mvvm 8.4 |
 | 托盘 | H.NotifyIcon.WinUI |
 | 核心 | sing-box ≥ 1.12（CI 打包最新稳定版，位于 `core\sing-box.exe`） |
-| 测试 | xUnit（79 个用例，`Chorus.Core` 跨平台可跑） |
+| 测试 | xUnit（84 个用例，`Chorus.Core` 跨平台可跑） |
 
 ## 目录结构
 
@@ -137,9 +137,10 @@ Chorus/
 
 1. 从 [Releases](https://github.com/fansa92/Chorus/releases) 下载并解压 `Chorus-win-x64.zip`（**已内置官方 sing-box 核心**，位于 `core\sing-box.exe`，构建时自动打包最新稳定版）。
 2. 启动应用 → 侧边栏「订阅」页添加订阅链接（支持多个，点卡片可切换当前使用的配置）→ 仪表盘打开开关。
-3. 也可以在设置页手动粘贴分享链接补充节点；手动节点会附加到当前选中的订阅上。
-4. 设置与节点保存在 `%LOCALAPPDATA%\Chorus\settings.json`，日志在 `%LOCALAPPDATA%\Chorus\crash.log`（异常才写）。
-5. 想换核心版本：替换 `core\sing-box.exe`，或把新版放到 `%LOCALAPPDATA%\Chorus\core\`（优先读便携目录）。
+3. **首次运行是干净的**：安装包里不带任何订阅链接，`系统代理` / `TUN` / `允许局域网` 全部默认关闭，代理只在你手动打开开关后才生效。
+4. 也可以在设置页手动粘贴分享链接补充节点；手动节点会附加到当前选中的订阅上。
+5. 设置与节点保存在 `%LOCALAPPDATA%\Chorus\settings.json`（**不在安装目录里**，升级/换包不会把订阅信息带进发布包；卸载时删掉该目录即可清干净），日志在 `%LOCALAPPDATA%\Chorus\crash.log`（异常才写）。
+6. 想换核心版本：替换 `core\sing-box.exe`，或把新版放到 `%LOCALAPPDATA%\Chorus\core\`（优先读便携目录）。
    注意：应用要求 sing-box **1.12 或更高版本**（配置使用新版 DNS 服务器格式；CI 打包时自动下载最新稳定版）。
 
 ### 自定义策略组
