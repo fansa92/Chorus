@@ -116,6 +116,37 @@ public sealed class AppSettings
     /// </summary>
     public bool ApplySubscriptionRouting { get; set; } = true;
 
+    /// <summary>
+    /// 是否启用 IPv6。对应 sing-box 的 dns.strategy：
+    /// 开启用 prefer_ipv6（能走 IPv6 就走），关闭用 ipv4_only（只解析 A 记录）。
+    /// 改这个值需要重启核心。
+    /// </summary>
+    public bool EnableIPv6 { get; set; } = true;
+
+    /// <summary>
+    /// 界面主题："system"（跟随系统）/ "light" / "dark"。
+    /// </summary>
+    public string Theme { get; set; } = "system";
+
+    /// <summary>
+    /// 界面语言："system"（跟随系统）/ "zh-Hans" / "en-US"。
+    /// </summary>
+    public string Language { get; set; } = "system";
+
+    /// <summary>
+    /// 被「自定义」面板关闭的策略组名（参考 Bettbox 的 groupSwitches）。
+    /// 关闭的组不会写进生成的配置，路由里引用它的规则也会被剔除。
+    /// </summary>
+    public List<string> DisabledGroups { get; set; } = [];
+
+    /// <summary>
+    /// 自动测速（urltest）组的手动固定：组名 → 节点名。
+    /// sing-box 的 urltest 组不能被 Clash API 直接选中，所以 Chorus 为每个自动组
+    /// 生成一个同名 selector 包装层，点节点就是在这个包装层上选；
+    /// 值为空字符串表示「交还内核自动选择」。
+    /// </summary>
+    public Dictionary<string, string> AutoGroupPicks { get; set; } = [];
+
     /// <summary>当前选中的订阅；未选中（或选中的已被删除）时返回 null。</summary>
     public SubscriptionEntry? ActiveSubscription() =>
         string.IsNullOrWhiteSpace(ActiveSubscriptionUrl)

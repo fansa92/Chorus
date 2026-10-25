@@ -6,6 +6,7 @@ using Chorus.Core.ClashApi;
 using Chorus.Core.Net;
 using Chorus.Core.Utils;
 using Microsoft.UI.Dispatching;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
 using Windows.UI;
 
@@ -78,6 +79,22 @@ public partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private string _lastDetectText = "—";
     [ObservableProperty] private string _detectStatusText = "点「重新检测」查看出口 IP 与延迟";
     [ObservableProperty] private bool _canDetect = true;
+
+    /// <summary>出口 IP 的来源（ip-api.com / ipwho.is / 本地 GeoIP 库…）。</summary>
+    [ObservableProperty] private string _ipSourceText = "";
+
+    // ---- 内网信息（本机网卡地址）----
+    [ObservableProperty] private string _localIpv4Text = "—";
+    [ObservableProperty] private string _localIpv6Text = "—";
+    [ObservableProperty] private string _localDetailText = "";
+
+    /// <summary>有没有拿到 IPv6 地址（没有时隐藏那一行）。</summary>
+    public Visibility HasLocalIpv6 => LocalIpv6Text.Length > 0 && LocalIpv6Text != "—"
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    /// <summary>本机 IPv6 是否可用（与 IPv6 开关联动，关掉时提示用户）。</summary>
+    [ObservableProperty] private bool _ipv6Disabled;
 
     /// <summary>出口国家/地区的国旗（查不到归属时为 null，界面显示地球图标）。</summary>
     [ObservableProperty] private ImageSource? _flagImage;
@@ -161,10 +178,49 @@ public partial class DashboardViewModel : ObservableObject
                 _memoryHistory.Clear();
                 MemorySampled?.Invoke([]);
                 ApplyMode("rule");
+                // 核心停了也继续展示网络信息：出口 IP 走直连测，内网信息始终有效
+                RequestDetect(0);
             }
         });
         AppServices.Runner.StatusTextChanged += text => Ui.Post(() => StatusText = text);
         AppServices.Runner.TrafficUpdated += sample => Ui.Post(() => OnTraffic(sample));
+
+        RefreshLocalAddresses();
+
+        // 核心没启动也展示网络信息：开屏先直连测一次出口 IP 与延迟。
+        // （用户要求：未开启内核时不提示「未开启内核」，直接给出网络信息）
+        RequestDetect(0);
+    }
+
+    /// <summary>
+    /// 采集本机网卡地址（内网信息卡片）。不依赖核心，开关界面就有。
+    /// </summary>
+    private void RefreshLocalAddresses()
+    {
+        try
+        {
+            var addresses = LocalAddressProvider.Collect();
+            var ipv4 = LocalAddressProvider.PrimaryIpv4(addresses);
+            var ipv6 = LocalAddressProvider.PrimaryIpv6(addresses);
+
+            LocalIpv4Text = ipv4.Length > 0 ? ipv4 : "未检测到";
+            LocalIpv6Text = ipv6.Length > 0 ? ipv6 : "未检测到";
+
+            // 网卡数量 + 虚拟网卡提示
+            var virtualCount = addresses.Count(a => a.IsVirtual);
+            var parts = new List<string> { $"{addresses.Count} 块网卡" };
+            if (virtualCount > 0) parts.Add($"{virtualCount} 块为虚拟网卡");
+            LocalDetailText = string.Join(" · ", parts);
+
+            OnPropertyChanged(nameof(HasLocalIpv6));
+        }
+        catch
+        {
+            LocalIpv4Text = "读取失败";
+            LocalIpv6Text = "读取失败";
+            LocalDetailText = "";
+            OnPropertyChanged(nameof(HasLocalIpv6));
+        }
     }
 
     private void ResetCounters()
@@ -376,6 +432,7 @@ public partial class DashboardViewModel : ObservableObject
                 IpText = info.Ip;
                 LocationText = info.LocationText;
                 IspText = info.Isp;
+                IpSourceText = info.SourceText;
                 FlagImage = Flags.Get(info.FlagCode);
                 HasFlag = FlagImage is not null;
             }
@@ -384,6 +441,7 @@ public partial class DashboardViewModel : ObservableObject
                 IpText = "—";
                 LocationText = "出口 IP 查询失败";
                 IspText = "";
+                IpSourceText = "";
                 FlagImage = null;
                 HasFlag = false;
             }

@@ -209,6 +209,20 @@ public class SubscriptionRoutingTests
     }
 
     [Fact]
+    public void Merged_Dns_Keeps_Builtin_Strategy()
+    {
+        // 设置页的 IPv6 开关写在内置 dns.strategy 里；订阅合并重建 dns 段时必须带回来，
+        // 否则一旦订阅带分流规则，IPv6 开关就静默失效（实机验证时发现过这个 bug）。
+        var withIpv6 = Build();
+        Assert.Equal("prefer_ipv6", withIpv6["dns"]?["strategy"]?.GetValue<string>());
+
+        var settings = SettingsWithRouting();
+        settings.EnableIPv6 = false;
+        var withoutIpv6 = ConfigGenerator.Build(settings);
+        Assert.Equal("ipv4_only", withoutIpv6["dns"]?["strategy"]?.GetValue<string>());
+    }
+
+    [Fact]
     public void Subscription_Routing_RoundTrips_Through_Settings_Json()
     {
         var options = new JsonSerializerOptions

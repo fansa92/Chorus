@@ -42,6 +42,11 @@ public partial class App : Application
             Ui.Initialize(DispatcherQueue.GetForCurrentThread());
             AppServices.Initialize();
 
+            // 主题与语言要在窗口创建前定下来：RequestedTheme 一旦被窗口用着再改，
+            // 已打开的页面不会自动换肤。
+            ThemeService.ApplyFromSettings(AppServices.Settings);
+            Loc.SetLanguage(AppServices.Settings.Language);
+
             _window = new MainWindow();
             _window.Activate();
         }

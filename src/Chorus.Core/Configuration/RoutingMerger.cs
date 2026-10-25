@@ -277,12 +277,20 @@ public static class RoutingMerger
                 ? GetString(first, "tag")
                 : GetString(keptServers[0], "tag");
 
-        config["dns"] = new JsonObject
+        // 重建 dns 段时必须把内置生成的 dns.strategy 带回来（设置页的 IPv6 开关写在这里）：
+        // 只保留 servers/rules/final 的话，一旦合并了订阅分流，IPv6 开关就静默失效。
+        // 内置生成时 strategy 一定存在；订阅自带 strategy 时以内置的为准（用户显式设置优先）。
+        var strategy = config["dns"] is JsonObject prevDns ? GetString(prevDns, "strategy") : null;
+        if (string.IsNullOrWhiteSpace(strategy)) strategy = GetString(dns, "strategy");
+
+        var mergedDns = new JsonObject
         {
             ["servers"] = new JsonArray([.. keptServers.Select(x => (JsonNode)x)]),
             ["rules"] = new JsonArray([.. keptRules.Select(x => (JsonNode)x)]),
             ["final"] = final,
         };
+        if (!string.IsNullOrWhiteSpace(strategy)) mergedDns["strategy"] = strategy;
+        config["dns"] = mergedDns;
 
         // 出站解析域名用的解析器也必须存在，否则 sing-box 1.14 直接 FATAL；
         // 优先挑一个不走代理的服务器（走代理的解析器会引出「解析节点域名又要用节点」的循环）

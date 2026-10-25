@@ -30,6 +30,7 @@ public sealed partial class SettingsPage : Page
             "allowLan" => AllowLanToggle,
             "systemProxy" => SystemProxyToggle,
             "tun" => TunToggle,
+            "ipv6" => Ipv6Toggle,
             "routing" => RoutingToggle,
             "closeToTray" => CloseToTrayToggle,
             _ => (ToggleSwitch?)null,

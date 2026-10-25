@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using Chorus.App.Services;
 using Chorus.Core.ClashApi;
+using Chorus.Core.Configuration;
 using Chorus.Core.State;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -54,6 +55,68 @@ public partial class ProxiesViewModel : ObservableObject
     public Visibility CacheNoteVisibility => FromCache ? Visibility.Visible : Visibility.Collapsed;
 
     public string CacheNoteText => "核心未运行，下面显示的是上次读取的策略组快照（只读）。启动核心后即可切换节点与测速。";
+
+    // ---- 自定义面板：策略组开关（参考 Bettbox 的 groupSwitches）----
+
+    /// <summary>可开关的策略组清单（含开关状态）。</summary>
+    [ObservableProperty] private IReadOnlyList<GroupSwitchViewModel> _groupSwitches = [];
+
+    /// <summary>自定义面板的说明文字。</summary>
+    public string CustomHintText => "关掉的策略组不会写进配置，引用它的路由规则也会被剔除。改动需要重启核心后生效。";
+
+    /// <summary>开关状态：某个组是否被禁用（禁用 = 不写进配置）。</summary>
+    public bool IsGroupDisabled(string name) =>
+        AppServices.Settings.DisabledGroups?.Contains(name) == true;
+
+    /// <summary>
+    /// 切换某个策略组的启用状态。立即写盘；配置本身要重启核心才生效，
+    /// 所以这里提示用户，而不是偷偷重启（重启会断掉正在跑的连接）。
+    /// </summary>
+    public void ToggleGroupSwitch(GroupSwitchViewModel item, bool enabled)
+    {
+        var settings = AppServices.Settings;
+        settings.DisabledGroups ??= [];
+        if (enabled) settings.DisabledGroups.Remove(item.Name);
+        else if (!settings.DisabledGroups.Contains(item.Name)) settings.DisabledGroups.Add(item.Name);
+        AppServices.Store.Save(settings);
+
+        item.IsEnabled = enabled;
+        StatusText = enabled
+            ? $"已启用「{item.Name}」，重启核心后生效"
+            : $"已禁用「{item.Name}」，重启核心后生效";
+    }
+
+    /// <summary>
+    /// 重建自定义面板的清单：所有策略组（来自当前配置，能读到就以核心里的为准，
+    /// 读不到就用设置里算出来的），默认全部启用。
+    /// </summary>
+    public void BuildGroupSwitches()
+    {
+        var names = new List<string>();
+
+        // 优先用核心里实际存在的组（这是用户看到的真实清单）
+        if (_allGroups.Count > 0)
+        {
+            names.AddRange(_allGroups.Select(g => g.Name));
+        }
+        else
+        {
+            // 核心没跑：按设置推算
+            try
+            {
+                names.AddRange(AppServices.Settings.EffectiveGroups().Select(g => g.Name));
+            }
+            catch
+            {
+                // 设置损坏时给出空清单
+            }
+        }
+
+        GroupSwitches = names
+            .Distinct(StringComparer.Ordinal)
+            .Select(name => new GroupSwitchViewModel(name, !IsGroupDisabled(name)))
+            .ToList();
+    }
 
     partial void OnFromCacheChanged(bool value) => OnPropertyChanged(nameof(CacheNoteVisibility));
 
@@ -202,10 +265,20 @@ public partial class ProxiesViewModel : ObservableObject
             _allGroups.Clear();
             foreach (var info in groupInfos)
             {
+                // 内层自动组（◈ 自动·xxx）是 Chorus 给自动测速组加的包装层里层，
+                // 不单独展示为标签页——它在 Clash API 里会自己冒出来。
+                if (info.Name.StartsWith(ConfigGenerator.AutoInnerPrefix, StringComparison.Ordinal)) continue;
+
                 var gvm = new ProxyGroupViewModel(info.Name, info.Type)
                 {
                     SelectedName = info.Now ?? "",
                 };
+                // 自动组：内核选中的是内层组名，对外显示成「由内核自动选择」
+                var innerTag = ConfigGenerator.AutoInnerPrefix + info.Name;
+                var isAutoGroup = info.Type.Equals("Selector", StringComparison.OrdinalIgnoreCase)
+                                  && info.All.Contains(innerTag, StringComparer.Ordinal);
+                gvm.SetAutoInfo(isAutoGroup, innerTag);
+
                 var members = info.All.Select(name =>
                 {
                     var member = new ProxyMemberViewModel(gvm, name)
@@ -370,6 +443,9 @@ public partial class ProxiesViewModel : ObservableObject
                     m.IsSelected = m.Name == member.Name;
                 StatusText = $"{group.Name} → {member.Name}";
                 PersistSnapshot();
+                // 自动组被手动钉住后记住这个选择：重启核心后仍然生效
+                if (group.IsAutoGroup)
+                    RememberAutoPick(group.Name, member.Name);
                 // 出口换了，仪表盘的网络检测必须跟着刷新（Bettbox 换节点后也会重查出口 IP）
                 AppServices.DashboardVm.RefreshAfterNodeSwitch(member.Name);
             });
@@ -378,6 +454,48 @@ public partial class ProxiesViewModel : ObservableObject
         {
             Ui.Post(() => StatusText = "切换失败：" + ex.Message);
         }
+    }
+
+    /// <summary>
+    /// 把自动组交还内核：选中内层 urltest 组，核心恢复「自动挑最快」。
+    /// 用户点一下已选中的节点就回到自动模式（Bettbox 的 url-test 组也是这么切的）。
+    /// </summary>
+    public async Task ResetAutoGroupAsync(ProxyGroupViewModel group)
+    {
+        if (!group.IsAutoGroup || group.AutoInnerTag.Length == 0) return;
+        if (!AppServices.Runner.IsRunning)
+        {
+            Ui.Post(() => StatusText = "核心未运行，启动后才能切换节点（当前显示的是上次读取的快照）");
+            return;
+        }
+        try
+        {
+            await AppServices.Clash.SelectAsync(group.Name, group.AutoInnerTag);
+            Ui.Post(() =>
+            {
+                group.SelectedName = group.AutoInnerTag;
+                foreach (var m in group.AllMembers)
+                    m.IsSelected = false;
+                StatusText = $"{group.Name} → 由内核自动选择";
+                PersistSnapshot();
+                RememberAutoPick(group.Name, "");
+                AppServices.DashboardVm.RefreshAfterNodeSwitch();
+            });
+        }
+        catch (Exception ex)
+        {
+            Ui.Post(() => StatusText = "切换失败：" + ex.Message);
+        }
+    }
+
+    /// <summary>记住（或清除）自动组的手动固定，写进设置以便重启核心后仍生效。</summary>
+    private static void RememberAutoPick(string groupName, string nodeName)
+    {
+        var settings = AppServices.Settings;
+        settings.AutoGroupPicks ??= new Dictionary<string, string>();
+        if (nodeName.Length == 0) settings.AutoGroupPicks.Remove(groupName);
+        else settings.AutoGroupPicks[groupName] = nodeName;
+        AppServices.Store.Save(settings);
     }
 
     public async Task TestGroupDelayAsync(ProxyGroupViewModel group)
@@ -422,6 +540,23 @@ public partial class ProxiesViewModel : ObservableObject
     }
 }
 
+/// <summary>
+/// 自定义面板里的一个策略组开关（对应 Bettbox 的 groupSwitches）。
+/// </summary>
+public partial class GroupSwitchViewModel : ObservableObject
+{
+    public string Name { get; }
+
+    /// <summary>该组是否启用（true = 会写进配置）。</summary>
+    [ObservableProperty] private bool _isEnabled = true;
+
+    public GroupSwitchViewModel(string name, bool isEnabled)
+    {
+        Name = name;
+        _isEnabled = isEnabled;
+    }
+}
+
 public partial class ProxyGroupViewModel : ObservableObject
 {
     private static readonly SolidColorBrush AccentBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3E, 0x8F, 0xE0));
@@ -440,10 +575,47 @@ public partial class ProxyGroupViewModel : ObservableObject
     /// PUT /proxies/{name}；URLTest/Fallback 组会返回 400，伪造的 GLOBAL 项返回 404。</summary>
     public bool IsSelectable => RawType.Equals("Selector", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// 是否是「自动测速组」。Chorus 给自动组加了 selector 包装层（内核本身不给 URLTest 组开选择接口），
+    /// 包装层里含一个内层 urltest 组——据此就能认出它并允许用户手动钉住某个节点。
+    /// </summary>
+    public bool IsAutoGroup { get; private set; }
+
+    /// <summary>内层自动组的 tag（点「交还内核自动选择」时选的就是它）。</summary>
+    public string AutoInnerTag { get; private set; } = "";
+
+    /// <summary>设置自动组信息（从核心读到的组才知道自己是不是自动组）。</summary>
+    public void SetAutoInfo(bool isAutoGroup, string autoInnerTag)
+    {
+        IsAutoGroup = isAutoGroup;
+        AutoInnerTag = autoInnerTag;
+        OnPropertyChanged(nameof(IsAutoGroup));
+        OnPropertyChanged(nameof(AutoInnerTag));
+        OnPropertyChanged(nameof(IsAutoSelected));
+        OnPropertyChanged(nameof(AutoResetVisibility));
+        OnPropertyChanged(nameof(TypeBadgeText));
+        OnPropertyChanged(nameof(TypeBadgeBrush));
+        OnPropertyChanged(nameof(TypeBadgeBackground));
+        OnPropertyChanged(nameof(SubtitleText));
+    }
+
+    /// <summary>
+    /// 当前是否由内核自动挑节点（内层 urltest 被选中）。
+    /// 自动组被用户钉住某个节点后为 false。
+    /// </summary>
+    public bool IsAutoSelected => !IsAutoGroup
+                                  || string.Equals(SelectedName, AutoInnerTag, StringComparison.Ordinal);
+
+    /// <summary>「交还内核自动选择」按钮的可见性：自动组且当前不是自动模式时才显示。</summary>
+    public Visibility AutoResetVisibility => IsAutoGroup && !IsAutoSelected
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
     /// <summary>组头右侧的类型徽标（手动 / 自动）。</summary>
-    public string TypeBadgeText => IsSelectable ? "手动" : "自动";
-    public Brush TypeBadgeBrush => IsSelectable ? AccentBrush : AutoBrush;
-    public Brush TypeBadgeBackground => IsSelectable ? AccentBgBrush : AutoBgBrush;
+    public string TypeBadgeText => IsAutoGroup ? "自动" : (IsSelectable ? "手动" : "自动");
+
+    public Brush TypeBadgeBrush => IsAutoGroup ? AutoBrush : (IsSelectable ? AccentBrush : AutoBrush);
+    public Brush TypeBadgeBackground => IsAutoGroup ? AutoBgBrush : (IsSelectable ? AccentBgBrush : AutoBgBrush);
 
     /// <summary>是否为当前标签页选中的策略组（驱动顶部标签的选中态）。</summary>
     [ObservableProperty] private bool _isActive;
@@ -464,9 +636,17 @@ public partial class ProxyGroupViewModel : ObservableObject
     [ObservableProperty] private string _selectedName = "";
 
     /// <summary>组头下方的说明：类型 + 当前生效节点。</summary>
-    public string SubtitleText => SelectedName.Length == 0
-        ? TypeText
-        : $"{TypeText} · {SelectedName}";
+    public string SubtitleText
+    {
+        get
+        {
+            if (SelectedName.Length == 0) return TypeText;
+            // 自动组选中的是内层 urltest 的 tag，对用户显示成「由内核自动选择」
+            if (IsAutoGroup && string.Equals(SelectedName, AutoInnerTag, StringComparison.Ordinal))
+                return $"{TypeText} · 由内核自动选择";
+            return $"{TypeText} · {SelectedName}";
+        }
+    }
 
     /// <summary>全部成员（未过滤，顺序即配置顺序）。</summary>
     public IReadOnlyList<ProxyMemberViewModel> AllMembers => _source;
@@ -483,10 +663,12 @@ public partial class ProxyGroupViewModel : ObservableObject
         OnPropertyChanged(nameof(MemberCountLabel));
     }
 
-    public ProxyGroupViewModel(string name, string type)
+    public ProxyGroupViewModel(string name, string type, bool isAutoGroup = false, string autoInnerTag = "")
     {
         Name = name;
         RawType = type;
+        IsAutoGroup = isAutoGroup;
+        AutoInnerTag = autoInnerTag;
         TypeText = type switch
         {
             "Selector" or "selector" => "手动选择",
@@ -499,7 +681,9 @@ public partial class ProxyGroupViewModel : ObservableObject
     public void SetMembers(IEnumerable<ProxyMemberViewModel> members)
     {
         _source.Clear();
-        _source.AddRange(members);
+        // 内层自动组（◈ 自动·xxx）是包装层的里层，不作为节点展示给用户——
+        // 它由「交还内核自动选择」按钮代替。
+        _source.AddRange(members.Where(m => !string.Equals(m.Name, AutoInnerTag, StringComparison.Ordinal)));
         UpdateFilter("");
     }
 
@@ -510,7 +694,11 @@ public partial class ProxyGroupViewModel : ObservableObject
             : _source.Where(m => m.Name.Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
-    partial void OnSelectedNameChanged(string value) => OnPropertyChanged(nameof(SubtitleText));
+    partial void OnSelectedNameChanged(string value)
+    {
+        OnPropertyChanged(nameof(SubtitleText));
+        OnPropertyChanged(nameof(AutoResetVisibility));
+    }
 }
 
 public partial class ProxyMemberViewModel : ObservableObject

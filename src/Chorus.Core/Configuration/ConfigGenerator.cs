@@ -10,6 +10,14 @@ public static partial class ConfigGenerator
     public const string AutoGroupTag = "♻️ 自动选择";
     public const string SelectGroupTag = "🚀 节点选择";
 
+    /// <summary>
+    /// 自动测速组的「内层 urltest」tag 前缀。
+    /// sing-box 的 Clash API 只给 selector 组开 PUT 接口，urltest 组点节点会返回
+    /// 400 "Must be a Selector"。所以自动组生成两层：内层 urltest 负责测速，
+    /// 外层 selector 负责让用户手动钉住节点。内层 tag 必须和外层不同，否则自引用成环。
+    /// </summary>
+    public const string AutoInnerPrefix = "◈ 自动·";
+
     public static JsonObject Build(AppSettings settings) => BuildWithReport(settings).Config;
 
     /// <summary>生成配置，并返回订阅路由合并结果（便于在日志里说明规则有没有真正生效）。</summary>
@@ -35,6 +43,12 @@ public static partial class ConfigGenerator
         var allGroups = new List<ProxyGroup>(manualGroups);
         allGroups.AddRange(subGroups.Where(g => !manualNames.Contains(g.Name)));
 
+        // 「自定义」面板里被关掉的组：直接不生成这个出站。
+        // 路由里引用它的规则随后会被 RoutingMerger 按 outboundTags 校验剔除。
+        var disabled = new HashSet<string>(settings.DisabledGroups ?? [], StringComparer.Ordinal);
+        if (disabled.Count > 0)
+            allGroups = allGroups.Where(g => !disabled.Contains(g.Name)).ToList();
+
         var hasAutoGroup = allGroups.Any(g => g.Name == AutoGroupTag);
         var hasSelectGroup = allGroups.Any(g => g.Name == SelectGroupTag);
 
@@ -46,6 +60,11 @@ public static partial class ConfigGenerator
 
         var outbounds = new JsonArray();
 
+        // 自动测速组（urltest）不能被 Clash API 直接选中——内核只给 selector 组开 PUT 接口。
+        // 所以每个自动组额外包一层同名 selector：里层保留 urltest 做真正的测速，
+        // 外层 selector 让用户能手动钉住某个节点；再点一次同一个节点就交还内核自动选。
+        // 内层组用独立 tag（AutoInnerPrefix），避免与外层同名造成循环引用。
+        // 路由规则引用的是外层组名（与原组名一致），所以分流不受影响。
         foreach (var group in allGroups)
         {
             var members = ResolveGroupMembers(group, resolvableGroupNames, nodeTags);
@@ -57,14 +76,32 @@ public static partial class ConfigGenerator
                     throw new InvalidOperationException($"策略组“{group.Name}”没有匹配到任何成员，请检查其 members 配置。");
                 continue;
             }
-            outbounds.Add(group.Type == "urltest"
-                ? BuildUrlTest(group.Name, members, group)
-                : BuildSelector(group.Name, members, group));
+
+            if (group.Type == "urltest")
+            {
+                var innerTag = AutoInnerPrefix + group.Name;
+                outbounds.Add(BuildUrlTest(innerTag, members, group));
+                // 外层 selector 的成员：内层自动组 + 原组成员（节点与嵌套组都保留）。
+                // 排除自己，避免自引用成环。
+                var wrapperMembers = new List<string> { innerTag };
+                wrapperMembers.AddRange(members.Where(m => !string.Equals(m, group.Name, StringComparison.Ordinal)));
+                outbounds.Add(BuildAutoWrapper(group.Name, wrapperMembers, settings.AutoGroupPicks, nodeTags));
+            }
+            else
+            {
+                outbounds.Add(BuildSelector(group.Name, members, group));
+            }
         }
 
         // 订阅/手动配置没有定义内置同名组时，才生成内置的自动测速组和总选择组
         if (!hasAutoGroup)
-            outbounds.Add(BuildUrlTest(AutoGroupTag, nodeTags, null));
+        {
+            var innerTag = AutoInnerPrefix + AutoGroupTag;
+            outbounds.Add(BuildUrlTest(innerTag, nodeTags, null));
+            var wrapperMembers = new List<string> { innerTag };
+            wrapperMembers.AddRange(nodeTags);
+            outbounds.Add(BuildAutoWrapper(AutoGroupTag, wrapperMembers, settings.AutoGroupPicks, nodeTags));
+        }
 
         if (!hasSelectGroup)
         {
@@ -119,6 +156,9 @@ public static partial class ConfigGenerator
                     // 会让 sing-box 在解析节点域名时直接失败
                     new JsonObject { ["type"] = "local", ["tag"] = "dns-direct" },
                 },
+                // IPv6 开关：关闭时只解析 A 记录（ipv4_only），避免拿到 AAAA 后连不通。
+                // 开启时 prefer_ipv6：有 IPv6 走 IPv6，没有就回落 IPv4。
+                ["strategy"] = settings.EnableIPv6 ? "prefer_ipv6" : "ipv4_only",
                 ["final"] = "dns-proxy",
             },
             ["inbounds"] = inbounds,
@@ -394,6 +434,46 @@ public static partial class ConfigGenerator
             ["interval"] = interval,
             ["tolerance"] = 50,
         };
+    }
+
+    /// <summary>
+    /// 自动组的「外层包装 selector」：默认选中内层 urltest（= 内核自动挑最快的），
+    /// 用户手动钉住某个节点后，下次生成配置时把 default 改成那个节点。
+    /// </summary>
+    private static JsonObject BuildAutoWrapper(
+        string tag,
+        IReadOnlyList<string> members,
+        IReadOnlyDictionary<string, string>? picks,
+        IReadOnlyList<string> nodeTags)
+    {
+        var selector = new JsonObject
+        {
+            ["type"] = "selector",
+            ["tag"] = tag,
+            ["outbounds"] = ToJsonArray(members),
+            ["interrupt_exist_connections"] = false,
+        };
+
+        // 用户钉过节点就用它当默认（必须是有效成员，且不能是内层自动组本身）
+        var picked = "";
+        if (picks is not null && picks.TryGetValue(tag, out var value))
+            picked = value;
+
+        if (picked.Length > 0
+            && members.Contains(picked, StringComparer.Ordinal)
+            && nodeTags.Contains(picked, StringComparer.Ordinal))
+        {
+            selector["default"] = picked;
+            return selector;
+        }
+
+        // 没钉过（或钉的节点已失效）：显式指向内层自动组 = 交给内核自动选。
+        // 显式写出来而不是依赖「第一个成员」，行为更确定，也方便 UI 读出当前状态。
+        var innerTag = members.Count > 0 ? members[0] : "";
+        if (innerTag.StartsWith(AutoInnerPrefix, StringComparison.Ordinal))
+            selector["default"] = innerTag;
+
+        return selector;
     }
 
     /// <summary>Go 时长格式（如 3m / 1h30m / 500ms），用于校验订阅里的 interval。</summary>

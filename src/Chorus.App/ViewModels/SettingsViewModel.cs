@@ -24,6 +24,9 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private string _logLevel = "info";
     [ObservableProperty] private string _subscriptionUserAgent = SubscriptionService.DefaultUserAgent;
     [ObservableProperty] private bool _applySubscriptionRouting = true;
+    [ObservableProperty] private bool _enableIPv6 = true;
+    [ObservableProperty] private string _theme = "system";
+    [ObservableProperty] private string _language = "system";
     [ObservableProperty] private string _shareLinks = "";
     [ObservableProperty] private int _manualNodeCount;
     [ObservableProperty] private bool _hasMessage;
@@ -59,6 +62,66 @@ public partial class SettingsViewModel : ObservableObject
     public string UserAgentLabel => string.IsNullOrWhiteSpace(SubscriptionUserAgent)
         ? SubscriptionService.DefaultUserAgent
         : SubscriptionUserAgent;
+
+    /// <summary>主题下拉的可选项（界面用中文名显示，存的是代码）。</summary>
+    public IReadOnlyList<string> ThemeOptions { get; } = ThemeService.Options;
+
+    /// <summary>语言下拉的可选项。</summary>
+    public IReadOnlyList<string> LanguageOptions { get; } = Loc.Options;
+
+    /// <summary>主题当前值的中文名。</summary>
+    public string ThemeLabel => ThemeService.Label(Theme);
+
+    /// <summary>语言当前值的中文名。</summary>
+    public string LanguageLabel => Language switch
+    {
+        "zh-Hans" => "简体中文",
+        "en-US" => "English",
+        _ => "跟随系统",
+    };
+
+    /// <summary>主题下拉显示的文本列表（与 ThemeOptions 一一对应）。</summary>
+    public IReadOnlyList<string> ThemeOptionLabels { get; } =
+        ThemeService.Options.Select(ThemeService.Label).ToList();
+
+    /// <summary>语言下拉显示的文本列表。</summary>
+    public IReadOnlyList<string> LanguageOptionLabels { get; } =
+        Loc.Options.Select(o => o switch
+        {
+            "zh-Hans" => "简体中文",
+            "en-US" => "English",
+            _ => "跟随系统",
+        }).ToList();
+
+    /// <summary>主题下拉的选中下标（ComboBox 用 SelectedIndex 绑定）。</summary>
+    public int ThemeIndex
+    {
+        get
+        {
+            var i = ThemeService.Options.ToList().IndexOf(Theme);
+            return i < 0 ? 0 : i;
+        }
+        set
+        {
+            if (value < 0 || value >= ThemeService.Options.Length) return;
+            Theme = ThemeService.Options[value];
+        }
+    }
+
+    /// <summary>语言下拉的选中下标。</summary>
+    public int LanguageIndex
+    {
+        get
+        {
+            var i = Loc.Options.ToList().IndexOf(Language);
+            return i < 0 ? 0 : i;
+        }
+        set
+        {
+            if (value < 0 || value >= Loc.Options.Length) return;
+            Language = Loc.Options[value];
+        }
+    }
 
     /// <summary>底部版本行：Chorus 版本（来自发布 tag）+ 核心版本（核心在磁盘上才读得到）。</summary>
     public string VersionLine => string.IsNullOrWhiteSpace(CoreVersionText)
@@ -107,6 +170,9 @@ public partial class SettingsViewModel : ObservableObject
         LogLevel = settings.LogLevel;
         SubscriptionUserAgent = settings.SubscriptionUserAgent;
         ApplySubscriptionRouting = settings.ApplySubscriptionRouting;
+        EnableIPv6 = settings.EnableIPv6;
+        Theme = string.IsNullOrWhiteSpace(settings.Theme) ? "system" : settings.Theme;
+        Language = string.IsNullOrWhiteSpace(settings.Language) ? "system" : settings.Language;
         ManualNodeCount = settings.Profile.Nodes.Count;
         _suppress = false;
     }
@@ -161,6 +227,31 @@ public partial class SettingsViewModel : ObservableObject
     {
         if (_suppress) return;
         Apply(settings => settings.CloseToTray = value);
+    }
+
+    /// <summary>IPv6 开关：写进配置需要重启核心，所以给个提示。</summary>
+    partial void OnEnableIPv6Changed(bool value)
+    {
+        if (_suppress) return;
+        Apply(settings => settings.EnableIPv6 = value);
+        AppServices.DashboardVm.ShowHint(
+            value ? "IPv6 已开启，重启核心后生效" : "IPv6 已关闭，重启核心后生效");
+    }
+
+    partial void OnThemeChanged(string value)
+    {
+        if (_suppress || string.IsNullOrWhiteSpace(value)) return;
+        Apply(settings => settings.Theme = value);
+        ThemeService.Apply(value);
+        OnPropertyChanged(nameof(ThemeLabel));
+    }
+
+    partial void OnLanguageChanged(string value)
+    {
+        if (_suppress || string.IsNullOrWhiteSpace(value)) return;
+        Apply(settings => settings.Language = value);
+        Loc.SetLanguage(value);
+        OnPropertyChanged(nameof(LanguageLabel));
     }
 
     partial void OnLogLevelChanged(string value)

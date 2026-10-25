@@ -29,10 +29,26 @@ public sealed record IpInfo(string Ip, string Country, string City, string Isp, 
             return code == "tw" ? "cn" : code;
         }
     }
+
+    /// <summary>这条结果是从哪来的（界面底部的来源标注）。</summary>
+    public string Source { get; init; } = "";
+
+    /// <summary>来源的中文短名。</summary>
+    public string SourceText => Source switch
+    {
+        "ip-api" => "ip-api.com",
+        "ipwho.is" => "ipwho.is",
+        "ipinfo.io" => "ipinfo.io",
+        "ip.im" => "ip.im",
+        "iplark" => "iplark.com",
+        "ifconfig.co" => "ifconfig.co",
+        "local" => "本地 GeoIP 库",
+        _ => "",
+    };
 }
 
 /// <summary>
-/// 解析各家 IP 归属查询接口的返回体：主接口 ipwho.is，备用接口 ip-api.com。
+/// 解析各家 IP 归属查询接口的返回体。
 /// 只做纯解析，便于单测——网络请求在 App 层。
 /// </summary>
 public static class IpInfoParser
@@ -52,7 +68,10 @@ public static class IpInfoParser
         var isp = root["connection"] is JsonObject connection ? Str(connection, "isp") : "";
         if (isp.Length == 0 && root["connection"] is JsonObject conn2) isp = Str(conn2, "org");
 
-        return new IpInfo(ip, NormalizeCountry(country, code), Str(root, "city"), isp, code);
+        return new IpInfo(ip, NormalizeCountry(country, code), Str(root, "city"), isp, code)
+        {
+            Source = "ipwho.is",
+        };
     }
 
     /// <summary>解析 http://ip-api.com/json 的返回。</summary>
@@ -71,7 +90,109 @@ public static class IpInfoParser
         var city = Str(root, "city");
         if (city.Length == 0) city = Str(root, "regionName");
 
-        return new IpInfo(ip, NormalizeCountry(country, code), city, Str(root, "isp"), code);
+        return new IpInfo(ip, NormalizeCountry(country, code), city, Str(root, "isp"), code)
+        {
+            Source = "ip-api",
+        };
+    }
+
+    /// <summary>
+    /// 解析 https://ipinfo.io/json 的返回。
+    /// 它没有国家全名，只有两位代码与 org（运营商），城市在 city 字段。
+    /// </summary>
+    public static IpInfo? ParseIpInfoIo(string json)
+    {
+        if (Parse(json) is not JsonObject root) return null;
+
+        var ip = Str(root, "ip");
+        if (ip.Length == 0) return null;
+
+        var code = Str(root, "country");
+        var country = CountryNames.Of(code);
+        var isp = Str(root, "org");
+        // org 形如 "AS15169 Google LLC"，只留后面的名字更干净
+        if (isp.StartsWith("AS", StringComparison.OrdinalIgnoreCase))
+        {
+            var space = isp.IndexOf(' ');
+            if (space > 0 && space < isp.Length - 1) isp = isp[(space + 1)..];
+        }
+
+        return new IpInfo(ip, NormalizeCountry(country, code), Str(root, "city"), isp, code)
+        {
+            Source = "ipinfo.io",
+        };
+    }
+
+    /// <summary>
+    /// 解析 https://ip.im/api 的返回（字段名与 ipwho.is 类似但有差异）。
+    /// </summary>
+    public static IpInfo? ParseIpIm(string json)
+    {
+        if (Parse(json) is not JsonObject root) return null;
+
+        var ip = Str(root, "ip");
+        if (ip.Length == 0) return null;
+
+        var code = Str(root, "country_code");
+        var country = Str(root, "country");
+        if (country.Length == 0) country = code;
+        var isp = Str(root, "isp");
+        if (isp.Length == 0) isp = Str(root, "asn_org");
+
+        return new IpInfo(ip, NormalizeCountry(country, code), Str(root, "city"), isp, code)
+        {
+            Source = "ip.im",
+        };
+    }
+
+    /// <summary>
+    /// 解析 https://iplark.com/api 的返回。
+    /// 它用驼峰字段名，与 ip-api 类似但用 countryCode 之外还有 code。
+    /// </summary>
+    public static IpInfo? ParseIplark(string json)
+    {
+        if (Parse(json) is not JsonObject root) return null;
+
+        var ip = Str(root, "ip");
+        if (ip.Length == 0) return null;
+
+        var code = Str(root, "countryCode");
+        if (code.Length == 0) code = Str(root, "code");
+        var country = Str(root, "country");
+        if (country.Length == 0) country = Str(root, "countryName");
+        if (country.Length == 0) country = CountryNames.Of(code);
+        var city = Str(root, "city");
+        if (city.Length == 0) city = Str(root, "regionName");
+        var isp = Str(root, "isp");
+        if (isp.Length == 0) isp = Str(root, "asnOrg");
+
+        return new IpInfo(ip, NormalizeCountry(country, code), city, isp, code)
+        {
+            Source = "iplark",
+        };
+    }
+
+    /// <summary>
+    /// 解析 https://ifconfig.co/json 的返回。
+    /// 它用 country_iso 给两位代码、asn_org 给运营商，但没有城市。
+    /// </summary>
+    public static IpInfo? ParseIfconfigCo(string json)
+    {
+        if (Parse(json) is not JsonObject root) return null;
+
+        var ip = Str(root, "ip");
+        if (ip.Length == 0) return null;
+
+        var code = Str(root, "country_iso");
+        var country = Str(root, "country");
+        if (country.Length == 0) country = CountryNames.Of(code);
+        var isp = Str(root, "asn_org");
+        if (isp.Length == 0) isp = Str(root, "asn");
+
+        return new IpInfo(ip, NormalizeCountry(country, code), Str(root, "city"), isp, code)
+        {
+            Source = "ifconfig.co",
+        };
     }
 
     /// <summary>
@@ -101,4 +222,36 @@ public static class IpInfoParser
 
     private static string Str(JsonObject obj, string property) =>
         obj[property] is JsonValue value && value.TryGetValue<string>(out var s) ? s : "";
+}
+
+/// <summary>
+/// 两位国家代码 → 中文国家名。
+/// 只有 ipinfo.io 这种只给代码不给名字的接口才用得上；
+/// 表不求全，覆盖常见的出口地即可，缺了就退回代码本身。
+/// </summary>
+public static class CountryNames
+{
+    private static readonly Dictionary<string, string> Map = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["CN"] = "中国", ["US"] = "美国", ["JP"] = "日本", ["KR"] = "韩国", ["SG"] = "新加坡",
+        ["TW"] = "中国台湾", ["HK"] = "中国香港", ["MO"] = "中国澳门",
+        ["GB"] = "英国", ["DE"] = "德国", ["FR"] = "法国", ["CA"] = "加拿大", ["AU"] = "澳大利亚",
+        ["RU"] = "俄罗斯", ["IN"] = "印度", ["BR"] = "巴西", ["NL"] = "荷兰", ["IT"] = "意大利",
+        ["ES"] = "西班牙", ["SE"] = "瑞典", ["CH"] = "瑞士", ["NO"] = "挪威", ["FI"] = "芬兰",
+        ["DK"] = "丹麦", ["PL"] = "波兰", ["TR"] = "土耳其", ["TH"] = "泰国", ["VN"] = "越南",
+        ["MY"] = "马来西亚", ["ID"] = "印度尼西亚", ["PH"] = "菲律宾", ["NZ"] = "新西兰",
+        ["IE"] = "爱尔兰", ["AT"] = "奥地利", ["BE"] = "比利时", ["CZ"] = "捷克", ["PT"] = "葡萄牙",
+        ["GR"] = "希腊", ["HU"] = "匈牙利", ["UA"] = "乌克兰", ["IL"] = "以色列", ["AE"] = "阿联酋",
+        ["SA"] = "沙特阿拉伯", ["ZA"] = "南非", ["AR"] = "阿根廷", ["CL"] = "智利", ["MX"] = "墨西哥",
+        ["RO"] = "罗马尼亚", ["BG"] = "保加利亚", ["IS"] = "冰岛", ["IE2"] = "爱尔兰",
+        ["KZ"] = "哈萨克斯坦", ["MN"] = "蒙古", ["PK"] = "巴基斯坦", ["BD"] = "孟加拉国",
+        ["NP"] = "尼泊尔", ["LK"] = "斯里兰卡", ["KH"] = "柬埔寨", ["LA"] = "老挝", ["MM"] = "缅甸",
+    };
+
+    /// <summary>取中文名；没有收录就返回代码本身（界面显示代码也不算错）。</summary>
+    public static string Of(string code)
+    {
+        if (string.IsNullOrWhiteSpace(code)) return "";
+        return Map.TryGetValue(code.Trim(), out var name) ? name : code.Trim().ToUpperInvariant();
+    }
 }

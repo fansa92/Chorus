@@ -14,6 +14,7 @@
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
                 <Button Content="全部测速" Click="TestAll_Click" />
                 <Button Content="刷新" Click="Refresh_Click" />
+                <Button Content="自定义" Click="Custom_Click" />
                 <TextBlock Text="{x:Bind Vm.StatusText}" VerticalAlignment="Center" Margin="4,0,0,0"
                            MaxWidth="320" TextTrimming="CharacterEllipsis"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -103,6 +104,10 @@
                                    FontSize="12"
                                    Opacity="0.6"
                                    VerticalAlignment="Center" />
+                        <!-- 自动组被手动钉住后，给一个「交还内核自动选择」的按钮 -->
+                        <Button Content="交还内核自动选择" Padding="8,3" FontSize="12"
+                                Click="ResetAuto_Click"
+                                Visibility="{x:Bind Vm.SelectedGroup.AutoResetVisibility, Mode=OneWay}" />
                         <Button Content="测速本组" Padding="8,3" FontSize="12" Click="TestCurrent_Click" />
                     </StackPanel>
                 </Grid>

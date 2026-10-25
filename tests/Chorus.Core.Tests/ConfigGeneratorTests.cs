@@ -69,9 +69,15 @@ public class ConfigGeneratorTests
         Assert.Contains("节点2", members);
 
         var auto = FindOutbound(config, ConfigGenerator.AutoGroupTag);
-        Assert.Equal("urltest", auto?["type"]?.GetValue<string>());
-        var autoMembers = auto?["outbounds"]?.AsArray().Select(x => (string?)x).ToList()!;
+        // 自动组是两层：外层 selector（用户可手动钉住节点）+ 内层 urltest（内核测速）
+        Assert.Equal("selector", auto?["type"]?.GetValue<string>());
+        var inner = FindOutbound(config, ConfigGenerator.AutoInnerPrefix + ConfigGenerator.AutoGroupTag);
+        Assert.Equal("urltest", inner?["type"]?.GetValue<string>());
+        var autoMembers = inner?["outbounds"]?.AsArray().Select(x => (string?)x).ToList()!;
         Assert.Contains("节点1", autoMembers);
+        // 外层默认交给内层
+        Assert.Equal(ConfigGenerator.AutoInnerPrefix + ConfigGenerator.AutoGroupTag,
+            auto?["default"]?.GetValue<string>());
     }
 
     [Fact]
@@ -241,9 +247,16 @@ public class ConfigGeneratorTests
         Assert.DoesNotContain("不存在的出口", manualMembers); // 无效成员被剔除
 
         var auto = FindOutbound(config, "🦈 自动选择");
-        Assert.Equal("urltest", auto?["type"]?.GetValue<string>());
-        Assert.Equal("300s", auto?["interval"]?.GetValue<string>()); // 采用订阅的间隔
-        Assert.Equal("https://www.gstatic.com/generate_204", auto?["url"]?.GetValue<string>());
+        // 自动组是两层：外层 selector（可手动选）+ 内层 urltest（内核测速）
+        Assert.Equal("selector", auto?["type"]?.GetValue<string>());
+        var inner = FindOutbound(config, ConfigGenerator.AutoInnerPrefix + "🦈 自动选择");
+        Assert.Equal("urltest", inner?["type"]?.GetValue<string>());
+        Assert.Equal("300s", inner?["interval"]?.GetValue<string>()); // 采用订阅的间隔
+        Assert.Equal("https://www.gstatic.com/generate_204", inner?["url"]?.GetValue<string>());
+        // 外层默认选中内层（= 交给内核自动选）
+        Assert.Equal(ConfigGenerator.AutoInnerPrefix + "🦈 自动选择", auto?["default"]?.GetValue<string>());
+        Assert.Contains(ConfigGenerator.AutoInnerPrefix + "🦈 自动选择",
+            auto?["outbounds"]?.AsArray().Select(x => (string?)x));
 
         // direct/block 常驻，供订阅组引用
         Assert.NotNull(FindOutbound(config, "direct"));

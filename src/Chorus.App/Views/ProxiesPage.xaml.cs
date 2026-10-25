@@ -57,13 +57,145 @@ public sealed partial class ProxiesPage : Page
     /// </summary>
     private async void Member_Tapped(object sender, TappedRoutedEventArgs e)
     {
-        if (sender is FrameworkElement { Tag: ProxyMemberViewModel member })
+        if (sender is not FrameworkElement { Tag: ProxyMemberViewModel member })
+            return;
+
+        // 自动测速组：内核本身不给 URLTest 组开选择接口，Chorus 给它加了 selector 包装层，
+        // 所以这里能点。已钉住某节点时再点同一个 = 交还内核自动选择；其余点击都是钉住/换钉。
+        if (member.Group.IsAutoGroup)
         {
-            if (member.Group.IsSelectable)
-                await Vm.SelectAsync(member.Group, member);
+            var pinned = !member.Group.IsAutoSelected
+                         && string.Equals(member.Group.SelectedName, member.Name, StringComparison.Ordinal);
+            if (pinned)
+                await Vm.ResetAutoGroupAsync(member.Group);
             else
-                Vm.StatusText =
-                    $"{member.Group.Name}（{member.Group.TypeText}）由核心自动选择，仅「手动选择」组可手动切换节点";
+                await Vm.SelectAsync(member.Group, member);
+            return;
         }
+
+        if (member.Group.IsSelectable)
+            await Vm.SelectAsync(member.Group, member);
+        else
+            Vm.StatusText =
+                $"{member.Group.Name}（{member.Group.TypeText}）由核心自动选择，仅「手动选择」组可手动切换节点";
+    }
+
+    /// <summary>「交还内核自动选择」按钮：把自动组恢复成内核自动挑节点。</summary>
+    private async void ResetAuto_Click(object sender, RoutedEventArgs e)
+    {
+        if (Vm.SelectedGroup is { } group)
+            await Vm.ResetAutoGroupAsync(group);
+    }
+
+    /// <summary>
+    /// 「自定义」按钮：弹出策略组开关面板。
+    /// <para>
+    /// 参考 Bettbox 代理页的「自定义」入口（Icons.tune 图标 → showGroupSwitchOptions）：
+    /// 逐个策略组开关，关闭的组不写进配置。Bettbox 用的是 Flutter 的
+    /// <c>AdaptiveSheetScaffold</c> 自适应底部弹层，WinUI 3 没有对应控件，
+    /// 这里用 <see cref="ContentDialog"/> 承载同样的「卡片 + 开关」列表。
+    /// </para>
+    /// </summary>
+    private async void Custom_Click(object sender, RoutedEventArgs e)
+    {
+        Vm.BuildGroupSwitches();
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "策略组自定义",
+            Content = BuildCustomPanel(),
+            CloseButtonText = "完成",
+        };
+
+        await dialog.ShowAsync();
+    }
+
+    /// <summary>
+    /// 自定义面板的内容：一个可滚动的列表，每行一个策略组 + 开关。
+    /// <para>
+    /// 不用 ListView + DataTemplate：WinUI 3 的 DataTemplate 没法用纯代码装载内容
+    /// （LoadContent 不是 virtual，SetContentPresenter 不存在）。
+    /// 这里直接手工生成行——策略组数量有限（通常几十个），一次生成完全够用。
+    /// </para>
+    /// </summary>
+    private UIElement BuildCustomPanel()
+    {
+        var panel = new StackPanel { Spacing = 10, MinWidth = 380 };
+
+        panel.Children.Add(new TextBlock
+        {
+            Text = Vm.CustomHintText,
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.75,
+            FontSize = 12,
+        });
+
+        var scroll = new ScrollViewer
+        {
+            Height = 320,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        };
+        var list = new StackPanel { Spacing = 8 };
+        scroll.Content = list;
+
+        foreach (var item in Vm.GroupSwitches)
+        {
+            list.Children.Add(BuildGroupSwitchRow(item));
+        }
+
+        panel.Children.Add(scroll);
+        return panel;
+    }
+
+    /// <summary>一行策略组开关（对齐 Bettbox 的 CommonCard + ListTile + Switch）。</summary>
+    private static Border BuildGroupSwitchRow(GroupSwitchViewModel item)
+    {
+        var root = new Border
+        {
+            CornerRadius = new CornerRadius(8),
+            Padding = new Thickness(14, 10, 14, 10),
+            Background = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[
+                "CardBackgroundFillColorDefaultBrush"],
+            BorderBrush = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[
+                "CardStrokeColorDefaultBrush"],
+            BorderThickness = new Thickness(1),
+        };
+
+        var grid = new Grid { ColumnSpacing = 12 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var name = new TextBlock
+        {
+            Text = item.Name,
+            VerticalAlignment = VerticalAlignment.Center,
+            FontSize = 14,
+        };
+
+        var toggle = new ToggleSwitch
+        {
+            MinWidth = 0,
+            OnContent = "",
+            OffContent = "",
+            IsOn = item.IsEnabled,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        // 开关拨动后立刻写盘
+        toggle.Toggled += (sender, _) =>
+        {
+            var sw = sender as ToggleSwitch;
+            if (sw is not null)
+                AppServices.ProxiesVm.ToggleGroupSwitch(item, sw.IsOn);
+        };
+
+        Grid.SetColumn(name, 0);
+        Grid.SetColumn(toggle, 1);
+        grid.Children.Add(name);
+        grid.Children.Add(toggle);
+        root.Child = grid;
+
+        return root;
     }
 }

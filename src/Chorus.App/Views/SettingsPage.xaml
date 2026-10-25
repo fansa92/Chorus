@@ -165,6 +165,52 @@
                                       IsHitTestVisible="False" VerticalAlignment="Center"
                                       IsOn="{x:Bind Vm.EnableTun, Mode=TwoWay}" />
                     </Grid>
+
+                    <Border Style="{StaticResource RowDividerStyle}" />
+
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="ipv6" Tapped="ToggleRow_Tapped"
+                          AutomationProperties.Name="启用 IPv6">
+                        <StackPanel>
+                            <TextBlock Text="启用 IPv6" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="关闭后 DNS 只解析 IPv4 地址，不再返回 AAAA 记录（重启核心后生效）" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="Ipv6Toggle" Grid.Column="1"
+                                      OnContent="" OffContent="" MinWidth="0"
+                                      IsHitTestVisible="False" VerticalAlignment="Center"
+                                      IsOn="{x:Bind Vm.EnableIPv6, Mode=TwoWay}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
+            <!-- ===== 外观 ===== -->
+            <TextBlock Text="外观" Style="{StaticResource SectionHeaderStyle}" Margin="2,22,0,8" />
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <StackPanel>
+                            <TextBlock Text="界面主题" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="浅色、深色或跟随系统的深浅色设置" />
+                        </StackPanel>
+                        <ComboBox Grid.Column="1" MinWidth="116" VerticalAlignment="Center"
+                                  ItemsSource="{x:Bind Vm.ThemeOptionLabels}"
+                                  SelectedIndex="{x:Bind Vm.ThemeIndex, Mode=TwoWay}" />
+                    </Grid>
+
+                    <Border Style="{StaticResource RowDividerStyle}" />
+
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <StackPanel>
+                            <TextBlock Text="界面语言" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="跟随系统、简体中文或 English" />
+                        </StackPanel>
+                        <ComboBox Grid.Column="1" MinWidth="116" VerticalAlignment="Center"
+                                  ItemsSource="{x:Bind Vm.LanguageOptionLabels}"
+                                  SelectedIndex="{x:Bind Vm.LanguageIndex, Mode=TwoWay}" />
+                    </Grid>
                 </StackPanel>
             </Border>
 

@@ -21,6 +21,11 @@ public sealed partial class MainWindow : Window
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
+        // 主题套到根元素上：应用级没有「跟随系统」这一档，只有根元素的
+        // ElementTheme.Default 才是真正的跟随系统。
+        ThemeService.Register(this);
+        ThemeService.ApplyToWindow(this, AppServices.Settings.Theme);
+
         if (MicaController.IsSupported())
         {
             SystemBackdrop = new MicaBackdrop();

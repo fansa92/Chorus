@@ -71,6 +71,7 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
 
                 <!-- ===== 运行开关（点击卡片启停核心） ===== -->
@@ -164,8 +165,8 @@
                 </Border>
 
                 <!-- ===== 网络检测（出口 IP / 地区 / 运营商 / 延迟） ===== -->
-                <Border Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" Style="{StaticResource CardStyle}">
-                    <Grid RowDefinitions="Auto,Auto,Auto">
+                <Border Grid.Row="1" Grid.Column="1" Style="{StaticResource CardStyle}">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto">
                         <Grid ColumnDefinitions="*,Auto">
                             <StackPanel Orientation="Horizontal" Spacing="8">
                                 <FontIcon Glyph="&#xE968;" FontSize="14"
@@ -216,6 +217,41 @@
                                        HorizontalAlignment="Right" VerticalAlignment="Bottom"
                                        TextWrapping="Wrap" TextAlignment="Right" />
                         </Grid>
+
+                        <!-- 数据来源（ip-api.com / ipwho.is / 本地 GeoIP 库…） -->
+                        <TextBlock Grid.Row="3" Margin="0,6,0,0"
+                                   Text="{x:Bind Vm.IpSourceText, Mode=OneWay}"
+                                   Style="{StaticResource CardCaptionStyle}" />
+                    </Grid>
+                </Border>
+
+                <!-- ===== 内网信息（本机 IPv4 / IPv6） ===== -->
+                <Border Grid.Row="1" Grid.Column="2" Style="{StaticResource CardStyle}">
+                    <Grid RowDefinitions="Auto,Auto,Auto,Auto">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE968;" FontSize="14"
+                                      Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                      VerticalAlignment="Center" />
+                            <TextBlock Text="内网信息" Style="{StaticResource CardTitleStyle}"
+                                       VerticalAlignment="Center" />
+                        </StackPanel>
+                        <StackPanel Grid.Row="1" Margin="0,8,0,0" Spacing="2">
+                            <TextBlock Text="IPv4" Style="{StaticResource CardCaptionStyle}" />
+                            <TextBlock Text="{x:Bind Vm.LocalIpv4Text, Mode=OneWay}"
+                                       FontSize="16" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <StackPanel Grid.Row="2" Margin="0,8,0,0" Spacing="2"
+                                    Visibility="{x:Bind Vm.HasLocalIpv6, Mode=OneWay}">
+                            <TextBlock Text="IPv6" Style="{StaticResource CardCaptionStyle}" />
+                            <TextBlock Text="{x:Bind Vm.LocalIpv6Text, Mode=OneWay}"
+                                       FontSize="16" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <TextBlock Grid.Row="3" Margin="0,8,0,0"
+                                   Text="{x:Bind Vm.LocalDetailText, Mode=OneWay}"
+                                   Style="{StaticResource CardCaptionStyle}"
+                                   TextTrimming="CharacterEllipsis" />
                     </Grid>
                 </Border>
 
