@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.Text.Json.Nodes;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Chorus.App.Services;
@@ -14,11 +13,17 @@ namespace Chorus.App.ViewModels;
 /// </summary>
 public partial class RulesViewModel : ObservableObject
 {
-    public ObservableCollection<RuleRowViewModel> Rules { get; } = [];
-    public ObservableCollection<RuleSetViewModel> RuleSets { get; } = [];
-    public ObservableCollection<DnsServerViewModel> DnsServers { get; } = [];
-    public ObservableCollection<RuleRowViewModel> DnsRules { get; } = [];
-    public ObservableCollection<RulesTabViewModel> Tabs { get; } = [];
+    // 注意：这里的列表是「整体替换的快照」，不是会被逐条增删的 ObservableCollection。
+    // 页面（ItemsRepeater）重新进入时同一个 ViewModel 会被再次绑定，如果沿用
+    // ObservableCollection，就要求集合通知的订阅者（旧页面的 repeater）安全地活着；
+    // 而 WinUI 的 ItemsRepeater 在页面卸载后仍可能挂着订阅，下一次 Clear()/Add()
+    // 就会抛 COMException 0x8000FFFF（E_UNEXPECTED），表现为「规则页白屏 / 闪退」。
+    // 换成快照属性后，一次刷新只发一次 PropertyChanged，由绑定去换 ItemsSource。
+    [ObservableProperty] private IReadOnlyList<RuleRowViewModel> _rules = [];
+    [ObservableProperty] private IReadOnlyList<RuleSetViewModel> _ruleSets = [];
+    [ObservableProperty] private IReadOnlyList<DnsServerViewModel> _dnsServers = [];
+    [ObservableProperty] private IReadOnlyList<RuleRowViewModel> _dnsRules = [];
+    [ObservableProperty] private IReadOnlyList<RulesTabViewModel> _tabs = [];
 
     [ObservableProperty] private int _tabIndex;
     [ObservableProperty] private string _sourceText = "";
@@ -32,9 +37,12 @@ public partial class RulesViewModel : ObservableObject
 
     public RulesViewModel()
     {
-        Tabs.Add(new RulesTabViewModel(0, "路由规则"));
-        Tabs.Add(new RulesTabViewModel(1, "规则集"));
-        Tabs.Add(new RulesTabViewModel(2, "DNS"));
+        Tabs =
+        [
+            new RulesTabViewModel(0, "路由规则"),
+            new RulesTabViewModel(1, "规则集"),
+            new RulesTabViewModel(2, "DNS"),
+        ];
         SelectTab(0);
         Refresh();
     }
@@ -86,10 +94,10 @@ public partial class RulesViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            Rules.Clear();
-            RuleSets.Clear();
-            DnsServers.Clear();
-            DnsRules.Clear();
+            Rules = [];
+            RuleSets = [];
+            DnsServers = [];
+            DnsRules = [];
             SourceText = "";
             StatusText = "无法生成配置：" + ex.Message;
             EmptyText = "没有可用节点，先在订阅页导入节点后回到这里";
@@ -101,27 +109,32 @@ public partial class RulesViewModel : ObservableObject
 
         var model = ConfigInspector.Inspect(config);
 
-        Rules.Clear();
+        var rules = new List<RuleRowViewModel>(model.Rules.Count);
         foreach (var rule in model.Rules)
-            Rules.Add(new RuleRowViewModel(rule.Index, rule.Conditions, rule.ActionText, rule.Outbound, rule.RawJson,
+            rules.Add(new RuleRowViewModel(rule.Index, rule.Conditions, rule.ActionText, rule.Outbound, rule.RawJson,
                 isReject: rule.ActionKind.Equals("reject", StringComparison.OrdinalIgnoreCase)));
 
-        RuleSets.Clear();
+        var ruleSets = new List<RuleSetViewModel>(model.RuleSets.Count);
         foreach (var set in model.RuleSets)
         {
             // 规则集卡片需要显示「被哪几条规则用到」，反查一次
             var usedBy = model.Rules.Count(r => r.RuleSetRefs.Contains(set.Tag, StringComparer.Ordinal));
-            RuleSets.Add(new RuleSetViewModel(set, usedBy));
+            ruleSets.Add(new RuleSetViewModel(set, usedBy));
         }
 
-        DnsServers.Clear();
+        var dnsServers = new List<DnsServerViewModel>(model.DnsServers.Count);
         foreach (var server in model.DnsServers)
-            DnsServers.Add(new DnsServerViewModel(server));
+            dnsServers.Add(new DnsServerViewModel(server));
 
-        DnsRules.Clear();
+        var dnsRules = new List<RuleRowViewModel>(model.DnsRules.Count);
         foreach (var rule in model.DnsRules)
-            DnsRules.Add(new RuleRowViewModel(rule.Index, rule.Conditions, rule.ActionText, null, rule.RawJson,
+            dnsRules.Add(new RuleRowViewModel(rule.Index, rule.Conditions, rule.ActionText, null, rule.RawJson,
                 isReject: false));
+
+        Rules = rules;
+        RuleSets = ruleSets;
+        DnsServers = dnsServers;
+        DnsRules = dnsRules;
 
         FinalText = model.Final ?? "（未设置，使用出站列表第一个）";
         DnsFinalText = model.DnsFinal ?? "（未设置）";

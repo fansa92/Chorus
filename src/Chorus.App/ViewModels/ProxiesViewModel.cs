@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Chorus.App.Services;
 using Chorus.Core.ClashApi;
@@ -15,8 +14,10 @@ public partial class ProxiesViewModel : ObservableObject
 {
     // 所有策略组（含被搜索过滤隐藏的），用于保留测速结果
     private readonly List<ProxyGroupViewModel> _allGroups = [];
+    private bool _refreshing;
 
-    public ObservableCollection<ProxyGroupViewModel> Groups { get; } = [];
+    /// <summary>当前展示的策略组标签（过滤后的快照，整体替换而不是逐条增删）。</summary>
+    [ObservableProperty] private IReadOnlyList<ProxyGroupViewModel> _groups = [];
 
     /// <summary>当前展示的策略组（切换标签时变化）。</summary>
     [ObservableProperty] private ProxyGroupViewModel? _selectedGroup;
@@ -29,13 +30,26 @@ public partial class ProxiesViewModel : ObservableObject
 
     [ObservableProperty] private Visibility _emptyVisibility = Visibility.Collapsed;
 
+    /// <summary>正在从核心拉取策略组（页面显示「正在加载」而不是一片空白）。</summary>
+    [ObservableProperty] private bool _isLoading;
+
     /// <summary>当前组内容（阵列）是否可见。</summary>
-    public Visibility ContentVisibility => SelectedGroup is null ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility ContentVisibility
+        => SelectedGroup is not null && !IsLoading ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>加载中的提示是否可见。</summary>
+    public Visibility LoadingVisibility => IsLoading ? Visibility.Visible : Visibility.Collapsed;
 
     partial void OnSearchTextChanged(string value) => ApplyFilter();
 
     partial void OnSelectedGroupChanged(ProxyGroupViewModel? value)
         => OnPropertyChanged(nameof(ContentVisibility));
+
+    partial void OnIsLoadingChanged(bool value)
+    {
+        OnPropertyChanged(nameof(ContentVisibility));
+        OnPropertyChanged(nameof(LoadingVisibility));
+    }
 
     /// <summary>切换到指定策略组（标签页切换）。</summary>
     public void SelectGroup(ProxyGroupViewModel? group)
@@ -47,87 +61,158 @@ public partial class ProxiesViewModel : ObservableObject
 
     public async Task RefreshAsync()
     {
+        if (_refreshing) return; // 连点刷新 / 页面重复进入时只跑一次
         if (!AppServices.Runner.IsRunning)
         {
             Ui.Post(() =>
             {
                 StatusText = "核心未运行";
                 _allGroups.Clear();
-                Groups.Clear();
+                Groups = [];
+                IsLoading = false;
                 EmptyText = "核心未运行，启动后点刷新";
                 UpdateEmptyVisibility();
             });
             return;
         }
 
+        _refreshing = true;
+        Ui.Post(() =>
+        {
+            IsLoading = _allGroups.Count == 0;
+            if (IsLoading) EmptyVisibility = Visibility.Collapsed;
+        });
         try
         {
-            var proxies = await AppServices.Clash.GetProxiesAsync();
-            var groupInfos = proxies.Values
-                .Where(p => (p.Type.Equals("Selector", StringComparison.OrdinalIgnoreCase)
-                          || p.Type.Equals("URLTest", StringComparison.OrdinalIgnoreCase)
-                          || p.Type.Equals("Fallback", StringComparison.OrdinalIgnoreCase))
-                          // GLOBAL 是 sing-box 为兼容 Clash 面板伪造的聚合项（源码注释
-                          // "fix clash dashboard"），不在出站管理器里，选中必 404，故不展示
-                          && !p.Name.Equals("GLOBAL", StringComparison.Ordinal))
-                .OrderBy(p => p.Type.Equals("Selector", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-                .ToList();
+            // 刚启动核心时 /proxies 可能还没就绪：inbound 与 Clash API 是在路由
+            // （含远程规则集下载）初始化完成后才起来的，慢的时候要几十秒。
+            // 这里边等边试，避免「启动后策略组页一片空白」。
+            for (var attempt = 0; attempt < 90; attempt++)
+            {
+                if (!AppServices.Runner.IsRunning)
+                {
+                    Ui.Post(() =>
+                    {
+                        IsLoading = false;
+                        StatusText = "核心已停止";
+                        UpdateEmptyVisibility();
+                    });
+                    return;
+                }
+                if (await TryLoadAsync()) return;
+
+                Ui.Post(() =>
+                {
+                    if (_allGroups.Count == 0)
+                    {
+                        IsLoading = true;
+                        StatusText = "正在等待核心就绪…（规则集下载完成后即可读取）";
+                    }
+                });
+                await Task.Delay(attempt < 5 ? 500 : 1000);
+            }
 
             Ui.Post(() =>
             {
-                // 记住刷新前的测速结果，刷新后按 (组名, 节点名) 恢复
-                var oldDelays = _allGroups
-                    .SelectMany(g => g.AllMembers)
-                    .Where(m => m.DelayMs.HasValue)
-                    .GroupBy(m => (Group: m.Group.Name, m.Name))
-                    .ToDictionary(g => g.Key, g => g.First().DelayMs);
-
-                // 记住刷新前停留在哪个策略组标签，重建后按组名回到同一页
-                var previousGroupName = SelectedGroup?.Name;
-
-                _allGroups.Clear();
-                foreach (var info in groupInfos)
-                {
-                    var gvm = new ProxyGroupViewModel(info.Name, info.Type)
-                    {
-                        SelectedName = info.Now ?? "",
-                    };
-                    var members = info.All.Select(name =>
-                    {
-                        var member = new ProxyMemberViewModel(gvm, name)
-                        {
-                            IsSelected = name == info.Now,
-                            // 每个代理在 Clash API 里都带自己的 type，即协议类型
-                            ProtocolType = proxies.TryGetValue(name, out var pi) ? pi.Type : "",
-                        };
-                        if (oldDelays.TryGetValue((info.Name, name), out var delay))
-                            member.DelayMs = delay;
-                        else if (proxies.TryGetValue(name, out var p2) && p2.LastDelay is > 0)
-                            member.DelayMs = p2.LastDelay; // 核心内存中的历史延迟
-                        return member;
-                    }).ToList();
-                    gvm.SetMembers(members);
-                    _allGroups.Add(gvm);
-                }
-
-                SelectGroup(previousGroupName is null
-                    ? null
-                    : _allGroups.FirstOrDefault(g => g.Name == previousGroupName));
-                ApplyFilter();
-                StatusText = $"已加载 {_allGroups.Count} 个策略组";
+                IsLoading = false;
+                StatusText = "读取策略组超时，点刷新重试";
+                UpdateEmptyVisibility();
             });
+        }
+        finally
+        {
+            _refreshing = false;
+        }
+    }
+
+    /// <summary>拉一次 /proxies 并重建标签；返回是否拿到了策略组。</summary>
+    private async Task<bool> TryLoadAsync()
+    {
+        Ui.Post(() =>
+        {
+            if (_allGroups.Count == 0) IsLoading = true;
+        });
+
+        Dictionary<string, ProxyInfo> proxies;
+        try
+        {
+            proxies = await AppServices.Clash.GetProxiesAsync();
         }
         catch (Exception ex)
         {
-            Ui.Post(() => StatusText = "刷新失败：" + ex.Message);
+            Ui.Post(() =>
+            {
+                IsLoading = false;
+                StatusText = "刷新失败：" + ex.Message;
+                UpdateEmptyVisibility();
+            });
+            return false;
         }
+
+        var groupInfos = proxies.Values
+            .Where(p => (p.Type.Equals("Selector", StringComparison.OrdinalIgnoreCase)
+                      || p.Type.Equals("URLTest", StringComparison.OrdinalIgnoreCase)
+                      || p.Type.Equals("Fallback", StringComparison.OrdinalIgnoreCase))
+                      // GLOBAL 是 sing-box 为兼容 Clash 面板伪造的聚合项（源码注释
+                      // "fix clash dashboard"），不在出站管理器里，选中必 404，故不展示
+                      && !p.Name.Equals("GLOBAL", StringComparison.Ordinal))
+            .OrderBy(p => p.Type.Equals("Selector", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ToList();
+
+        if (groupInfos.Count == 0) return false;
+
+        Ui.Post(() =>
+        {
+            // 记住刷新前的测速结果，刷新后按 (组名, 节点名) 恢复
+            var oldDelays = _allGroups
+                .SelectMany(g => g.AllMembers)
+                .Where(m => m.DelayMs.HasValue)
+                .GroupBy(m => (Group: m.Group.Name, m.Name))
+                .ToDictionary(g => g.Key, g => g.First().DelayMs);
+
+            // 记住刷新前停留在哪个策略组标签，重建后按组名回到同一页
+            var previousGroupName = SelectedGroup?.Name;
+
+            _allGroups.Clear();
+            foreach (var info in groupInfos)
+            {
+                var gvm = new ProxyGroupViewModel(info.Name, info.Type)
+                {
+                    SelectedName = info.Now ?? "",
+                };
+                var members = info.All.Select(name =>
+                {
+                    var member = new ProxyMemberViewModel(gvm, name)
+                    {
+                        IsSelected = name == info.Now,
+                        // 每个代理在 Clash API 里都带自己的 type，即协议类型
+                        ProtocolType = proxies.TryGetValue(name, out var pi) ? pi.Type : "",
+                    };
+                    if (oldDelays.TryGetValue((info.Name, name), out var delay))
+                        member.DelayMs = delay;
+                    else if (proxies.TryGetValue(name, out var p2) && p2.LastDelay is > 0)
+                        member.DelayMs = p2.LastDelay; // 核心内存中的历史延迟
+                    return member;
+                }).ToList();
+                gvm.SetMembers(members);
+                _allGroups.Add(gvm);
+            }
+
+            IsLoading = false;
+            SelectGroup(previousGroupName is null
+                ? _allGroups.FirstOrDefault()
+                : _allGroups.FirstOrDefault(g => g.Name == previousGroupName) ?? _allGroups.FirstOrDefault());
+            ApplyFilter();
+            StatusText = $"已加载 {_allGroups.Count} 个策略组 · {proxies.Count} 个出站";
+        });
+        return true;
     }
 
     /// <summary>按搜索词过滤组与组内节点。</summary>
     private void ApplyFilter()
     {
         var search = SearchText.Trim();
-        Groups.Clear();
+        var visible = new List<ProxyGroupViewModel>(_allGroups.Count);
         foreach (var group in _allGroups)
         {
             group.UpdateFilter(search);
@@ -135,18 +220,24 @@ public partial class ProxiesViewModel : ObservableObject
                 && group.Members.Count == 0
                 && !group.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
                 continue; // 搜索时隐藏名称与节点都不匹配的组
-            Groups.Add(group);
+            visible.Add(group);
         }
+        Groups = visible;
 
         // 当前标签被搜索过滤掉时，自动切到列表里的第一个组
-        if (SelectedGroup is null || !Groups.Contains(SelectedGroup))
-            SelectGroup(Groups.FirstOrDefault());
+        if (SelectedGroup is null || !visible.Contains(SelectedGroup))
+            SelectGroup(visible.FirstOrDefault());
 
         UpdateEmptyVisibility();
     }
 
     private void UpdateEmptyVisibility()
     {
+        if (IsLoading)
+        {
+            EmptyVisibility = Visibility.Collapsed;
+            return;
+        }
         if (Groups.Count == 0)
         {
             EmptyVisibility = Visibility.Visible;
@@ -260,14 +351,20 @@ public partial class ProxyGroupViewModel : ObservableObject
         ? TypeText
         : $"{TypeText} · {SelectedName}";
 
-    /// <summary>全部成员（未过滤）。</summary>
-    public ObservableCollection<ProxyMemberViewModel> AllMembers { get; } = [];
+    /// <summary>全部成员（未过滤，顺序即配置顺序）。</summary>
+    public IReadOnlyList<ProxyMemberViewModel> AllMembers => _source;
 
-    /// <summary>当前展示的成员（搜索过滤后）。</summary>
-    public ObservableCollection<ProxyMemberViewModel> Members { get; } = [];
+    /// <summary>当前展示的成员（搜索过滤后的快照）。</summary>
+    [ObservableProperty] private IReadOnlyList<ProxyMemberViewModel> _members = [];
 
     public string MemberCountText => $"{Members.Count}";
     public string MemberCountLabel => $"{Members.Count} 个节点";
+
+    partial void OnMembersChanged(IReadOnlyList<ProxyMemberViewModel> value)
+    {
+        OnPropertyChanged(nameof(MemberCountText));
+        OnPropertyChanged(nameof(MemberCountLabel));
+    }
 
     public ProxyGroupViewModel(string name, string type)
     {
@@ -286,26 +383,14 @@ public partial class ProxyGroupViewModel : ObservableObject
     {
         _source.Clear();
         _source.AddRange(members);
-        AllMembers.Clear();
-        foreach (var m in _source) AllMembers.Add(m);
         UpdateFilter("");
     }
 
     public void UpdateFilter(string search)
     {
-        Members.Clear();
-        if (search.Length == 0)
-        {
-            foreach (var m in _source) Members.Add(m);
-        }
-        else
-        {
-            foreach (var m in _source)
-                if (m.Name.Contains(search, StringComparison.OrdinalIgnoreCase))
-                    Members.Add(m);
-        }
-        OnPropertyChanged(nameof(MemberCountText));
-        OnPropertyChanged(nameof(MemberCountLabel));
+        Members = search.Length == 0
+            ? [.. _source]
+            : _source.Where(m => m.Name.Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
     }
 
     partial void OnSelectedNameChanged(string value) => OnPropertyChanged(nameof(SubtitleText));

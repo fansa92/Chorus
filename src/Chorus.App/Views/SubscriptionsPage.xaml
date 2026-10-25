@@ -5,82 +5,134 @@
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:Chorus.App.ViewModels"
-    x:DefaultBindMode="OneWay">
+    x:DefaultBindMode="OneWay"
+    mc:Ignorable="d">
 
-    <ScrollViewer>
-        <StackPanel
-            MaxWidth="860"
-            HorizontalAlignment="Left"
-            Spacing="12"
-            Padding="24,16,24,24">
+    <Grid RowDefinitions="Auto,Auto,*" Padding="24,18,24,0">
+        <!-- 标题行 -->
+        <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Text="订阅" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Content="添加订阅" Click="Add_Click" Style="{StaticResource AccentButtonStyle}" />
+                <Button Click="UpdateAll_Click" IsEnabled="{x:Bind Vm.CanUpdateAll, Mode=OneWay}">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <ProgressRing Width="14" Height="14" IsActive="{x:Bind Vm.IsBusy, Mode=OneWay}"
+                                      Visibility="{x:Bind Vm.BusyVisibility, Mode=OneWay}" />
+                        <TextBlock Text="{x:Bind Vm.UpdateAllText, Mode=OneWay}" VerticalAlignment="Center" />
+                    </StackPanel>
+                </Button>
+            </StackPanel>
+        </Grid>
 
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Text="订阅管理" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
-                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
-                    <Button Content="添加订阅" Click="Add_Click" Style="{StaticResource AccentButtonStyle}" />
-                    <Button Content="全部更新" Click="UpdateAll_Click" />
-                </StackPanel>
-            </Grid>
-
+        <!-- 消息条 + 摘要 -->
+        <StackPanel Grid.Row="1" Spacing="10" Margin="0,12,0,12">
             <InfoBar
-                IsOpen="{x:Bind Vm.HasMessage}"
-                Title="{x:Bind Vm.MessageTitle}"
-                Message="{x:Bind Vm.MessageText}"
-                Severity="{x:Bind Vm.MessageSeverity}"
+                IsOpen="{x:Bind Vm.HasMessage, Mode=OneWay}"
+                Title="{x:Bind Vm.MessageTitle, Mode=OneWay}"
+                Message="{x:Bind Vm.MessageText, Mode=OneWay}"
+                Severity="{x:Bind Vm.MessageSeverity, Mode=OneWay}"
                 IsClosable="False" />
-
-            <TextBlock Opacity="0.7" TextWrapping="Wrap">
-                <Run Text="当前共" />
-                <Run Text="{x:Bind Vm.TotalNodeCount, Mode=OneWay}" FontWeight="SemiBold" />
-                <Run Text="个节点生效（订阅" />
-                <Run Text="{x:Bind Vm.SubscriptionNodeCount, Mode=OneWay}" FontWeight="SemiBold" />
-                <Run Text="个 + 手动" />
-                <Run Text="{x:Bind Vm.ManualNodeCount, Mode=OneWay}" FontWeight="SemiBold" />
-                <Run Text="个），可在设置页粘贴分享链接补充手动节点。" />
-            </TextBlock>
-
-            <ListView ItemsSource="{x:Bind Vm.Items}" SelectionMode="None">
-                <ListView.ItemContainerStyle>
-                    <Style TargetType="ListViewItem">
-                        <Setter Property="Padding" Value="0" />
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                    </Style>
-                </ListView.ItemContainerStyle>
-                <ListView.ItemTemplate>
-                    <DataTemplate x:DataType="vm:SubscriptionItemViewModel">
-                        <Border
-                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                            BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
-                            BorderThickness="1"
-                            CornerRadius="8"
-                            Padding="14,12"
-                            Margin="0,0,0,10">
-                            <Grid ColumnDefinitions="Auto,*,Auto">
-                                <Border
-                                    Width="36" Height="36" CornerRadius="9"
-                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}">
-                                    <TextBlock Text="{x:Bind IconLetter}"
-                                               HorizontalAlignment="Center" VerticalAlignment="Center"
-                                               FontSize="16" />
-                                </Border>
-                                <StackPanel Grid.Column="1" Margin="12,0,12,0" VerticalAlignment="Center" Spacing="2">
-                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" />
-                                    <TextBlock Text="{x:Bind Url}" Opacity="0.65" FontSize="12"
-                                               TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Text="{x:Bind DisplayStatus}" Opacity="0.65" FontSize="12" />
-                                </StackPanel>
-                                <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                    <Button Content="更新" Click="UpdateItem_Click" />
-                                    <Button Content="编辑" Click="EditItem_Click" />
-                                    <Button Content="删除" Click="RemoveItem_Click" />
-                                </StackPanel>
-                            </Grid>
-                        </Border>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
-
-            <TextBlock Text="提示：点击「添加订阅」或「编辑」会在弹出面板中处理；修改订阅后如核心正在运行，重启核心后生效。" Opacity="0.7" TextWrapping="Wrap" />
+            <TextBlock Text="{x:Bind Vm.SummaryText, Mode=OneWay}"
+                       Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
+            <TextBlock Text="提示：修改订阅后，若核心正在运行会自动按新配置重启；点卡片上的「更新」可单独刷新。订阅转换服务按设置页里的 UA 返回 sing-box JSON 或 Clash YAML。"
+                       Opacity="0.5" FontSize="11" TextWrapping="Wrap" />
         </StackPanel>
-    </ScrollViewer>
+
+        <!-- 空态 -->
+        <StackPanel Grid.Row="2" Spacing="12"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Visibility="{x:Bind Vm.EmptyVisibility, Mode=OneWay}">
+            <FontIcon Glyph="&#xE774;" FontSize="30" Opacity="0.35" HorizontalAlignment="Center" />
+            <TextBlock Text="还没有订阅" FontWeight="SemiBold" HorizontalAlignment="Center" />
+            <TextBlock Text="添加一个订阅链接，解析出的节点与策略组会立刻用于生成配置。"
+                       Opacity="0.65" FontSize="12" HorizontalAlignment="Center" />
+            <Button Content="添加第一个订阅" Click="Add_Click" Style="{StaticResource AccentButtonStyle}"
+                    HorizontalAlignment="Center" />
+        </StackPanel>
+
+        <!-- 订阅卡片列表（布局参考 Bettbox 的配置列表：一张卡片说清状态，操作就地完成） -->
+        <ListView Grid.Row="2"
+                  ItemsSource="{x:Bind Vm.Items, Mode=OneWay}"
+                  SelectionMode="None"
+                  MaxWidth="980"
+                  HorizontalAlignment="Left"
+                  Padding="0,0,0,20"
+                  Visibility="{x:Bind Vm.ListVisibility, Mode=OneWay}">
+            <ListView.ItemContainerStyle>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="Padding" Value="0" />
+                    <Setter Property="Margin" Value="0,0,0,8" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                </Style>
+            </ListView.ItemContainerStyle>
+            <ListView.ItemTemplate>
+                <DataTemplate x:DataType="vm:SubscriptionItemViewModel">
+                    <Border
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="10"
+                        Padding="14,12">
+                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
+                            <!-- 首字母图标 -->
+                            <Border Width="40" Height="40" CornerRadius="10"
+                                    VerticalAlignment="Center"
+                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                <TextBlock Text="{x:Bind IconLetter}"
+                                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                                           FontSize="17" FontWeight="SemiBold" />
+                            </Border>
+
+                            <!-- 名称 / 主机 / 状态 -->
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" MaxWidth="320"
+                                               VerticalAlignment="Center" />
+                                    <Border CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
+                                            Background="{x:Bind BadgeBackground}"
+                                            BorderBrush="{x:Bind BadgeBrush}" BorderThickness="1">
+                                        <TextBlock Text="{x:Bind BadgeText}" FontSize="10"
+                                                   Foreground="{x:Bind BadgeBrush}" />
+                                    </Border>
+                                </StackPanel>
+                                <TextBlock Text="{x:Bind Host}" FontSize="12" Opacity="0.6"
+                                           FontFamily="Cascadia Mono, Consolas"
+                                           TextTrimming="CharacterEllipsis"
+                                           ToolTipService.ToolTip="{x:Bind Url}" />
+                                <TextBlock Text="{x:Bind DisplayStatus}" FontSize="12" Opacity="0.72"
+                                           TextTrimming="CharacterEllipsis" />
+                                <TextBlock Text="{x:Bind ErrorText}" FontSize="11"
+                                           Foreground="#D13438" TextWrapping="Wrap"
+                                           Visibility="{x:Bind ErrorVisibility}" />
+                            </StackPanel>
+
+                            <!-- 操作区：更新 / 编辑 / 删除（更新中换成进度环） -->
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
+                                        VerticalAlignment="Center">
+                                <ProgressRing Width="18" Height="18" IsActive="True"
+                                              Visibility="{x:Bind BusyVisibility}" />
+                                <Button Content="更新" Padding="10,4" FontSize="12"
+                                        Tag="{x:Bind}" Click="UpdateItem_Click"
+                                        IsEnabled="{x:Bind ButtonsEnabled}"
+                                        Visibility="{x:Bind UpdateButtonVisibility}" />
+                                <Button Padding="8,4" FontSize="12"
+                                        Tag="{x:Bind}" Click="EditItem_Click"
+                                        IsEnabled="{x:Bind ButtonsEnabled}"
+                                        ToolTipService.ToolTip="编辑名称或链接">
+                                    <FontIcon Glyph="&#xE70F;" FontSize="12" />
+                                </Button>
+                                <Button Padding="8,4" FontSize="12"
+                                        Tag="{x:Bind}" Click="RemoveItem_Click"
+                                        IsEnabled="{x:Bind ButtonsEnabled}"
+                                        ToolTipService.ToolTip="删除订阅">
+                                    <FontIcon Glyph="&#xE74D;" FontSize="12" />
+                                </Button>
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </DataTemplate>
+            </ListView.ItemTemplate>
+        </ListView>
+    </Grid>
 </Page>

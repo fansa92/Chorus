@@ -1,7 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Navigation;
 using Chorus.App.Services;
 using Chorus.App.ViewModels;
 
@@ -14,13 +13,18 @@ public sealed partial class ProxiesPage : Page
     public ProxiesPage()
     {
         InitializeComponent();
+        // 刷新放到 Loaded 之后：ViewModel 是单例，若在 OnNavigatedTo 里重建列表，
+        // 上一个页面实例还没卸载的 ItemsRepeater 可能仍在监听集合，容易抛 E_UNEXPECTED。
+        Loaded += OnLoaded;
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e)
+    private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        base.OnNavigatedTo(e);
+        Loaded -= OnLoaded;
         if (AppServices.Runner.IsRunning)
             _ = Vm.RefreshAsync();
+        else
+            Vm.StatusText = "核心未运行，启动后点刷新";
     }
 
     private void Refresh_Click(object sender, RoutedEventArgs e)

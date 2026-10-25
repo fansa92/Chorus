@@ -3,7 +3,6 @@ using Chorus.App.ViewModels;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Xaml.Navigation;
 
 namespace Chorus.App.Views;
 
@@ -14,11 +13,15 @@ public sealed partial class RulesPage : Page
     public RulesPage()
     {
         InitializeComponent();
+        // 不要在 OnNavigatedTo 里改数据：那时页面还没 Loaded，旧页面（如果是同一个
+        // 单例 ViewModel）的 ItemsRepeater 可能还挂着集合通知，改动会抛 E_UNEXPECTED。
+        // 放到 Loaded 之后，绑定就位、旧页面的 repeater 也已经卸载。
+        Loaded += OnLoaded;
     }
 
-    protected override void OnNavigatedTo(NavigationEventArgs e)
+    private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        base.OnNavigatedTo(e);
+        Loaded -= OnLoaded;
         // 每次进页面都重读配置：用户可能刚改过订阅或设置
         Vm.Refresh();
     }

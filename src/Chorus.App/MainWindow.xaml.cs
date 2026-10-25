@@ -50,6 +50,11 @@ public sealed partial class MainWindow : Window
         ContentFrame.Navigate(typeof(DashboardPage));
         NavList.SelectedIndex = 0;
 
+        // 支持 --start 启动即拉起核心（开机自启 / 脚本化启动用；不加参数时行为不变）
+        if (Environment.GetCommandLineArgs().Skip(1)
+                .Any(a => a.Equals("--start", StringComparison.OrdinalIgnoreCase)))
+            _ = StartCoreOnLaunchAsync();
+
         AppWindow.Closing += (s, e) =>
         {
             if (!_exiting && AppServices.Settings.CloseToTray)
@@ -60,8 +65,21 @@ public sealed partial class MainWindow : Window
         };
     }
 
-    private void NavList_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    /// <summary>--start：窗口起来后自动启动核心（等界面完成首帧，避免和布局抢 UI 线程）。</summary>
+    private async Task StartCoreOnLaunchAsync()
     {
+        try
+        {
+            await Task.Delay(800);
+            await AppServices.DashboardVm.ToggleAsync(true);
+        }
+        catch (Exception ex)
+        {
+            AppServices.DashboardVm.StatusText = "自动启动失败：" + ex.Message;
+        }
+    }
+
+    private void NavList_SelectionChanged(object sender, SelectionChangedEventArgs e)    {
         if (NavList.SelectedItem is not ListViewItem item || item.Tag is not string tag) return;
         var pageType = tag switch
         {

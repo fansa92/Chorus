@@ -28,23 +28,38 @@ public sealed partial class SubscriptionsPage : Page
 
     private async void UpdateItem_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as Button)?.DataContext is SubscriptionItemViewModel item)
+        if (ItemOf(sender) is { } item)
             await Vm.UpdateAsync(item);
     }
 
     private async void EditItem_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as Button)?.DataContext is not SubscriptionItemViewModel item) return;
+        if (ItemOf(sender) is not { } item) return;
         var (name, url) = await ShowSubscriptionDialogAsync("编辑订阅", "保存并更新", item.Name, item.Url);
         if (url is null) return;
         await Vm.EditAsync(item, name, url);
     }
 
-    private void RemoveItem_Click(object sender, RoutedEventArgs e)
+    /// <summary>删除前确认（Bettbox 的配置删除同样有一次确认，避免误删整份订阅）。</summary>
+    private async void RemoveItem_Click(object sender, RoutedEventArgs e)
     {
-        if ((sender as Button)?.DataContext is SubscriptionItemViewModel item)
-            Vm.Remove(item);
+        if (ItemOf(sender) is not { } item) return;
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = "删除订阅",
+            Content = $"确定删除「{item.Name}」吗？该订阅解析出的 {item.Entry.Nodes.Count} 个节点与 "
+                      + $"{item.Entry.Groups.Count} 个策略组会一并移除（手动节点不受影响）。",
+            PrimaryButtonText = "删除",
+            CloseButtonText = "取消",
+            DefaultButton = ContentDialogButton.Close,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+        Vm.Remove(item);
     }
+
+    private static SubscriptionItemViewModel? ItemOf(object sender)
+        => (sender as FrameworkElement)?.Tag as SubscriptionItemViewModel;
 
     /// <summary>弹出订阅编辑面板（添加/修改共用）。返回 (名称, 链接)；用户取消时链接为 null。</summary>
     private async Task<(string Name, string? Url)> ShowSubscriptionDialogAsync(

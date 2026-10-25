@@ -36,8 +36,13 @@ public partial class LogsViewModel : ObservableObject
     private readonly object _gate = new();
     private DispatcherQueueTimer? _timer;
     private long _seq;
+    private bool _attached;
 
-    /// <summary>当前展示的日志（已应用筛选，时间升序，最后一条最新）。</summary>
+    /// <summary>
+    /// 当前展示的日志（已应用筛选，时间升序，最后一条最新）。
+    /// 只在这个页面挂载期间被修改：页面不在时日志继续进 _all，但不动这里，
+    /// 否则已卸载页面的 ItemsRepeater 收到集合通知会抛 E_UNEXPECTED（表现为闪退）。
+    /// </summary>
     public ObservableCollection<LogItem> Lines { get; } = [];
 
     public string[] SourceOptions { get; } = ["全部来源", "内核", "应用"];
@@ -128,7 +133,7 @@ public partial class LogsViewModel : ObservableObject
         foreach (var item in batch)
         {
             _all.Add(item);
-            if (!Passes(item)) continue;
+            if (!_attached || !Passes(item)) continue;
             Lines.Add(item);
             appended++;
         }
@@ -139,13 +144,24 @@ public partial class LogsViewModel : ObservableObject
         UpdateStatus();
     }
 
+    /// <summary>页面挂载：之后才允许动展示列表，并把期间累积的日志补上。</summary>
+    public void Attach()
+    {
+        if (_attached) return;
+        _attached = true;
+        Rebuild();
+    }
+
+    /// <summary>页面卸载：停止维护展示列表（旧 repeater 可能还挂着集合通知）。</summary>
+    public void Detach() => _attached = false;
+
     private void TrimToLimit()
     {
         if (_all.Count <= MaxLines) return;
         var overflow = _all.Count - MaxLines;
         var removed = _all.GetRange(0, overflow);
         _all.RemoveRange(0, overflow);
-        if (Lines.Count == 0) return;
+        if (!_attached || Lines.Count == 0) return;
         // 展示列表是 _all 的有序子集，被丢弃的最旧几条若在列表里，同步去掉前缀
         var drop = 0;
         while (drop < Lines.Count && drop < removed.Count && ReferenceEquals(Lines[drop], removed[drop]))
@@ -185,6 +201,14 @@ public partial class LogsViewModel : ObservableObject
 
     private void Rebuild()
     {
+        // 页面不在时只更新计数，不动展示列表（见 Lines 的注释）
+        if (!_attached)
+        {
+            UpdateCounts();
+            UpdateStatus();
+            return;
+        }
+
         Lines.Clear();
         foreach (var item in _all)
             if (Passes(item))
@@ -295,7 +319,7 @@ public partial class LogsViewModel : ObservableObject
             _pending.Clear();
             _all.Clear();
         }
-        Lines.Clear();
+        if (_attached) Lines.Clear();
         ClearNew();
         UpdateCounts();
         UpdateStatus();

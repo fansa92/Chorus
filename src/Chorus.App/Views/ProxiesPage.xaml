@@ -152,7 +152,7 @@
                                             Margin="0,8,8,0"
                                             Background="{x:Bind CheckBrush}"
                                             Visibility="{x:Bind SelectedVisibility}">
-                                        <FontIcon FontFamily="Segoe Fluent Icons" Glyph="&#xE8FB;"
+                                        <FontIcon Glyph="&#xE8FB;"
                                                   FontSize="12" Foreground="White" />
                                     </Border>
                                 </Grid>
@@ -162,6 +162,15 @@
                 </ScrollViewer>
             </Grid>
         </Grid>
+
+        <!-- 正在从核心拉取策略组 -->
+        <StackPanel Grid.Row="3"
+                    Orientation="Horizontal" Spacing="10"
+                    HorizontalAlignment="Center" VerticalAlignment="Center"
+                    Visibility="{x:Bind Vm.LoadingVisibility}">
+            <ProgressRing IsActive="True" Width="20" Height="20" />
+            <TextBlock Text="正在从核心读取策略组…" Opacity="0.7" VerticalAlignment="Center" />
+        </StackPanel>
 
         <!-- 无任何策略组时的空态提示 -->
         <TextBlock Grid.Row="3"

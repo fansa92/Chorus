@@ -29,6 +29,8 @@ public sealed partial class LogsPage : Page
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // 先让 VM 进入「挂载」状态，它会把这期间累积的日志补进展示列表
+        Vm.Attach();
         Vm.Lines.CollectionChanged += OnLinesChanged;
         Vm.ScrollToEndRequested += ScrollToEnd;
         _scroll = FindScrollViewer(LogList);
@@ -41,6 +43,8 @@ public sealed partial class LogsPage : Page
     {
         Vm.Lines.CollectionChanged -= OnLinesChanged;
         Vm.ScrollToEndRequested -= ScrollToEnd;
+        // 页面离开后 VM 不再改展示列表，避免已卸载的列表控件收到集合通知而崩溃
+        Vm.Detach();
         if (_scroll is not null)
             _scroll.ViewChanged -= OnViewChanged;
         _scroll = null;
