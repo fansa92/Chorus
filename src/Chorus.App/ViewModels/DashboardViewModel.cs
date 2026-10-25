@@ -69,6 +69,14 @@ public partial class DashboardViewModel : ObservableObject
     [ObservableProperty] private string _detectStatusText = "点「重新检测」查看出口 IP 与延迟";
     [ObservableProperty] private bool _canDetect = true;
 
+    /// <summary>出口国家/地区的国旗（查不到归属时为 null，界面显示地球图标）。</summary>
+    [ObservableProperty] private ImageSource? _flagImage;
+
+    [ObservableProperty] private bool _hasFlag;
+
+    /// <summary>供 XAML 反向绑定用：没有国旗时显示地球图标。</summary>
+    public bool HasNoFlag => !HasFlag;
+
     // ---- 出站模式 / 连接 / 快捷开关 ----
     [ObservableProperty] private string _modeText = "规则";
     [ObservableProperty] private bool _ruleMode = true;
@@ -305,12 +313,16 @@ public partial class DashboardViewModel : ObservableObject
                 IpText = info.Ip;
                 LocationText = info.LocationText;
                 IspText = info.Isp;
+                FlagImage = Flags.Get(info.FlagCode);
+                HasFlag = FlagImage is not null;
             }
             else
             {
                 IpText = "—";
                 LocationText = "出口 IP 查询失败";
                 IspText = "";
+                FlagImage = null;
+                HasFlag = false;
             }
 
             LatencyText = latency is null ? "—" : $"{latency} ms";
@@ -513,6 +525,7 @@ public partial class DashboardViewModel : ObservableObject
     }
 
     partial void OnRunningChanged(bool value) => OnPropertyChanged(nameof(StartHint));
+    partial void OnHasFlagChanged(bool value) => OnPropertyChanged(nameof(HasNoFlag));
     partial void OnTotalUpTextChanged(string value) => OnPropertyChanged(nameof(TotalTrafficText));
     partial void OnTotalDownTextChanged(string value) => OnPropertyChanged(nameof(TotalTrafficText));
 }

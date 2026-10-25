@@ -100,4 +100,15 @@ public class NetworkProbeTests
         Assert.Null(result.LatencyMs);
         Assert.Null(result.Info);
     }
+
+    [Fact]
+    public async Task Primary_Endpoint_Asks_For_Country_Code()
+    {
+        // ip-api 的 fields 参数会裁掉没列出的字段：漏掉 countryCode 就没法显示国旗
+        var handler = new StubHandler(req => req.RequestUri!.Host == "ip-api.com" ? Json(IpApiOk) : NoContent());
+
+        await Probe(handler).LookupIpAsync();
+
+        Assert.Contains(handler.Requested, url => url.Contains("ip-api.com") && url.Contains("countryCode"));
+    }
 }

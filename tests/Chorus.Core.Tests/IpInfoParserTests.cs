@@ -83,4 +83,43 @@ public class IpInfoParserTests
 
         Assert.Equal(expected, info.LocationText);
     }
+
+    [Fact]
+    public void Country_Code_Is_Parsed_For_Flag_Lookup()
+    {
+        var fromIpWhoIs = IpInfoParser.ParseIpWhoIs("""
+            {"ip":"203.0.113.7","success":true,"country":"日本","country_code":"JP","city":"东京"}
+            """);
+        var fromIpApi = IpInfoParser.ParseIpApi("""
+            {"status":"success","country":"美国","countryCode":"US","city":"洛杉矶","query":"104.16.0.1"}
+            """);
+
+        Assert.Equal("JP", fromIpWhoIs!.CountryCode);
+        Assert.Equal("jp", fromIpWhoIs.FlagCode);
+        Assert.Equal("us", fromIpApi!.FlagCode);
+    }
+
+    [Fact]
+    public void FlagCode_Falls_Back_To_Empty_When_Code_Missing_Or_Odd()
+    {
+        Assert.Equal("", new IpInfo("1.1.1.1", "未知", "", "").FlagCode);
+        Assert.Equal("", new IpInfo("1.1.1.1", "未知", "", "", "XX1").FlagCode);
+        Assert.Equal("", new IpInfo("1.1.1.1", "未知", "", "", "USA").FlagCode);
+    }
+
+    [Theory]
+    [InlineData("TW", "台湾", "中国台湾", "cn")]     // 台湾用中国国旗
+    [InlineData("HK", "香港", "中国香港", "hk")]
+    [InlineData("MO", "澳门", "中国澳门", "mo")]
+    [InlineData("JP", "日本", "日本", "jp")]
+    public void Taiwan_HongKong_Macao_Are_Named_As_Parts_Of_China(
+        string code, string country, string expectedName, string expectedFlag)
+    {
+        var info = IpInfoParser.ParseIpApi($$"""
+            {"status":"success","country":"{{country}}","countryCode":"{{code}}","city":"","query":"1.2.3.4"}
+            """);
+
+        Assert.Equal(expectedName, info!.Country);
+        Assert.Equal(expectedFlag, info.FlagCode);
+    }
 }

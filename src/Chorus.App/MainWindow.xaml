@@ -36,11 +36,9 @@
                 BorderThickness="0,0,1,0">
                 <Grid RowDefinitions="Auto,*">
                     <StackPanel Orientation="Horizontal" Spacing="10" Padding="16,14,16,10">
-                        <Border Width="26" Height="26" CornerRadius="7"
-                                Background="{ThemeResource AccentFillColorDefaultBrush}">
-                            <TextBlock Text="C" Foreground="White" FontSize="14" FontWeight="SemiBold"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                        </Border>
+                        <!-- 侧栏顶部用应用图标本身（圆角已含在图里），和任务栏、托盘保持同一套视觉 -->
+                        <Image Width="26" Height="26" Source="Assets/appicon.png"
+                               VerticalAlignment="Center" />
                         <TextBlock Text="Chorus" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
                     </StackPanel>
 

@@ -18,10 +18,11 @@ public sealed class NetworkProbe
     /// <summary>
     /// IP 归属接口，按顺序尝试：ip-api.com 中文友好、国内可达性好，ipwho.is 作兜底。
     /// 每个接口单独计时，前一个超时不影响后一个。
+    /// fields 里必须带 countryCode——界面靠它取国旗，漏了就只能显示地球图标。
     /// </summary>
     private static readonly (string Url, Func<string, IpInfo?> Parse)[] IpEndpoints =
     [
-        ("http://ip-api.com/json/?lang=zh-CN&fields=status,country,regionName,city,isp,query",
+        ("http://ip-api.com/json/?lang=zh-CN&fields=status,country,countryCode,regionName,city,isp,query",
             IpInfoParser.ParseIpApi),
         ("https://ipwho.is/?lang=zh-CN", IpInfoParser.ParseIpWhoIs),
     ];
