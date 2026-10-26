@@ -147,6 +147,32 @@ public sealed class AppSettings
     /// </summary>
     public Dictionary<string, string> AutoGroupPicks { get; set; } = [];
 
+    // ---- 策略组页显示设置（参考 Bettbox 代理页的 ProxiesSetting）----
+    // 这一组只影响「怎么展示」，不写进 sing-box 配置，改完立刻生效、无需重启核心。
+
+    /// <summary>
+    /// 策略组页布局风格："tab"（标签页，一次显示一个组）/ "list"（列表，所有组纵向堆叠）。
+    /// </summary>
+    public string ProxiesViewType { get; set; } = "tab";
+
+    /// <summary>策略组内节点排序："none"（按核心返回顺序）/ "delay"（延迟升序）/ "name"（名称）。</summary>
+    public string ProxiesSortType { get; set; } = "none";
+
+    /// <summary>卡片密度："tight"（紧凑）/ "standard"（标准）/ "loose"（宽松）。</summary>
+    public string ProxiesLayout { get; set; } = "standard";
+
+    /// <summary>卡片尺寸："expand"（展开，信息最全）/ "shrink"（标准）/ "min"（最小，单行）。</summary>
+    public string ProxiesCardType { get; set; } = "shrink";
+
+    /// <summary>节点卡片图标样式："standard"（协议徽标 + 延迟）/ "none"（只文字）/ "icon"（只图标）。</summary>
+    public string ProxiesIconStyle { get; set; } = "standard";
+
+    /// <summary>列表视图下，滚动时组头是否自动吸顶（只影响列表模式）。</summary>
+    public bool ProxiesAutoStickyHeader { get; set; } = true;
+
+    /// <summary>是否显示被「自定义」面板关掉的策略组（关闭时列表里不出现这些组）。</summary>
+    public bool ProxiesShowHiddenItems { get; set; }
+
     /// <summary>当前选中的订阅；未选中（或选中的已被删除）时返回 null。</summary>
     public SubscriptionEntry? ActiveSubscription() =>
         string.IsNullOrWhiteSpace(ActiveSubscriptionUrl)

@@ -1,8 +1,10 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Chorus.App.Services;
 using Chorus.App.ViewModels;
+using Chorus.Core.Models;
 
 namespace Chorus.App.Views;
 
@@ -85,6 +87,220 @@ public sealed partial class ProxiesPage : Page
     {
         if (Vm.SelectedGroup is { } group)
             await Vm.ResetAutoGroupAsync(group);
+    }
+
+    /// <summary>列表视图里，某一组头部的「测速本组」按钮。</summary>
+    private async void TestGroupFromList_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: ProxyGroupViewModel group })
+            await Vm.TestGroupDelayAsync(group);
+    }
+
+    /// <summary>当前打开着的显示设置面板（点选项后要就地刷新选中态）。</summary>
+    private ContentDialog? _styleDialog;
+
+    /// <summary>
+    /// 「设置」按钮：打开策略组显示设置面板。
+    /// <para>
+    /// 参考 Bettbox 代理页 more_vert 菜单里的「设置」（<c>ProxiesSetting</c>）：
+    /// 风格 / 排序 / 布局 / 尺寸 / 图标样式五组，外加组头吸顶与显示隐藏项两个开关。
+    /// 面板本身用 <see cref="ContentDialog"/> 承载，选项卡片对齐 Bettbox 的
+    /// <c>SettingInfoCard</c> / <c>SettingTextCard</c>（选中态描边 + 强调色）。
+    /// </para>
+    /// </summary>
+    private async void StyleSettings_Click(object sender, RoutedEventArgs e)
+    {
+        // 已经开着就别再叠一个（设置面板常驻，点选项是就地刷新）
+        if (_styleDialog is not null) return;
+
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot,
+            Title = Loc.T("proxies.settings.title"),
+            Content = BuildStyleSettingsPanel(),
+            CloseButtonText = Loc.T("common.close"),
+        };
+        _styleDialog = dialog;
+        // Closed 比 await ShowAsync() 更早触发（后者要等隐藏动画跑完），
+        // 这里及时清掉引用，否则用户关掉面板后立刻再点「设置」会被守卫挡住
+        dialog.Closed += (_, _) => _styleDialog = null;
+        try
+        {
+            await dialog.ShowAsync();
+        }
+        finally
+        {
+            _styleDialog = null;
+        }
+    }
+
+    /// <summary>设置面板内容：标题说明 + 五组选项 + 两个开关。</summary>
+    private UIElement BuildStyleSettingsPanel()
+    {
+        var root = new StackPanel { Spacing = 10, MinWidth = 460, MaxWidth = 520 };
+
+        root.Children.Add(new TextBlock
+        {
+            Text = Vm.StyleHintText,
+            TextWrapping = TextWrapping.Wrap,
+            Opacity = 0.75,
+            FontSize = 12,
+        });
+
+        root.Children.Add(BuildOptionSection(
+            Loc.T("proxies.settings.style"),
+            Vm.ViewTypeOptions,
+            Vm.CurrentViewType,
+            (s, v) => s.ProxiesViewType = v,
+            s => s.ProxiesViewType));
+
+        root.Children.Add(BuildOptionSection(
+            Loc.T("proxies.settings.sort"),
+            Vm.SortTypeOptions,
+            Vm.CurrentSortType,
+            (s, v) => s.ProxiesSortType = v,
+            s => s.ProxiesSortType));
+
+        root.Children.Add(BuildOptionSection(
+            Loc.T("proxies.settings.layout"),
+            Vm.LayoutOptions,
+            Vm.CurrentLayout,
+            (s, v) => s.ProxiesLayout = v,
+            s => s.ProxiesLayout));
+
+        root.Children.Add(BuildOptionSection(
+            Loc.T("proxies.settings.size"),
+            Vm.CardTypeOptions,
+            Vm.CurrentCardType,
+            (s, v) => s.ProxiesCardType = v,
+            s => s.ProxiesCardType));
+
+        // 图标样式：Bettbox 里只有列表模式才显示这一组
+        var iconSection = BuildOptionSection(
+            Loc.T("proxies.settings.iconStyle"),
+            Vm.IconStyleOptions,
+            Vm.CurrentIconStyle,
+            (s, v) => s.ProxiesIconStyle = v,
+            s => s.ProxiesIconStyle);
+        iconSection.Visibility = Vm.IconStyleSectionVisibility;
+        root.Children.Add(iconSection);
+
+        root.Children.Add(BuildToggleRow(
+            Loc.T("proxies.sticky"), Loc.T("proxies.sticky.sub"),
+            Vm.AutoStickyHeader, Vm.StickyOptionVisibility,
+            on => Vm.AutoStickyHeader = on));
+
+        root.Children.Add(BuildToggleRow(
+            Loc.T("proxies.hidden"), Loc.T("proxies.hidden.sub"),
+            Vm.ShowHiddenItems, Visibility.Visible,
+            on => Vm.ShowHiddenItems = on));
+
+        // 五组选项 + 两个开关在列表模式下会超出窗口高度，套一层滚动，
+        // 否则下面的开关被裁掉、点不到（Bettbox 的面板本身也是可滚动的）
+        var scroll = new ScrollViewer
+        {
+            MaxHeight = 600,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            VerticalScrollMode = ScrollMode.Enabled,
+            HorizontalScrollMode = ScrollMode.Disabled,
+            Content = root,
+        };
+        return scroll;
+    }
+
+    /// <summary>一组选项：横向排列的可点卡片，选中项描边强调色（Bettbox 的选中态）。</summary>
+    private UIElement BuildOptionSection(
+        string title,
+        IReadOnlyList<StyleOption> options,
+        string current,
+        Action<AppSettings, string> setter,
+        Func<AppSettings, string> getter)
+    {
+        var panel = new StackPanel { Spacing = 8 };
+        panel.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 13,
+            FontWeight = Microsoft.UI.Text.FontWeights.SemiBold,
+        });
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        foreach (var option in options)
+        {
+            var isSelected = string.Equals(option.Value, current, StringComparison.OrdinalIgnoreCase);
+            var card = new Border
+            {
+                Width = 132,
+                Padding = new Thickness(10, 8, 10, 8),
+                CornerRadius = new CornerRadius(8),
+                Background = (Brush)Application.Current.Resources["CardBackgroundFillColorDefaultBrush"],
+                BorderBrush = isSelected
+                    ? (Brush)Application.Current.Resources["AccentFillColorDefaultBrush"]
+                    : (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"],
+                BorderThickness = new Thickness(isSelected ? 1.5 : 1),
+                Tag = option,
+            };
+            var text = new StackPanel { Spacing = 2 };
+            text.Children.Add(new TextBlock
+            {
+                Text = option.Label,
+                FontSize = 13,
+                FontWeight = isSelected ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            text.Children.Add(new TextBlock
+            {
+                Text = option.Subtitle,
+                FontSize = 11,
+                Opacity = 0.65,
+                TextWrapping = TextWrapping.Wrap,
+            });
+            card.Child = text;
+            card.Tapped += (_, _) =>
+            {
+                Vm.ApplyStyleOption(setter, getter, option.Value);
+                // 就地刷新面板：重绘内容即可反映新的选中态，不关对话框
+                if (_styleDialog is not null)
+                    _styleDialog.Content = BuildStyleSettingsPanel();
+            };
+            row.Children.Add(card);
+        }
+        panel.Children.Add(row);
+        return panel;
+    }
+
+    /// <summary>一行开关：标题 + 副标题 + ToggleSwitch。</summary>
+    private UIElement BuildToggleRow(
+        string title, string subtitle, bool isOn, Visibility visibility, Action<bool> onToggled)
+    {
+        var grid = new Grid { ColumnSpacing = 12, Visibility = visibility };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var text = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock { Text = title, FontSize = 13 });
+        text.Children.Add(new TextBlock
+        {
+            Text = subtitle,
+            FontSize = 11,
+            Opacity = 0.65,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        grid.Children.Add(text);
+
+        var toggle = new ToggleSwitch
+        {
+            MinWidth = 0,
+            OnContent = "",
+            OffContent = "",
+            IsOn = isOn,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        toggle.Toggled += (_, _) => onToggled(toggle.IsOn);
+        Grid.SetColumn(toggle, 1);
+        grid.Children.Add(toggle);
+        return grid;
     }
 
     /// <summary>

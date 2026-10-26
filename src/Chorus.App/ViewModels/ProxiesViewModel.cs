@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using Chorus.App.Services;
 using Chorus.Core.ClashApi;
 using Chorus.Core.Configuration;
+using Chorus.Core.Models;
 using Chorus.Core.State;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Media;
@@ -12,7 +13,21 @@ namespace Chorus.App.ViewModels;
 /// 策略组页（参考 Bettbox / FlClash 的标签页布局）：顶部是策略组切换标签，
 /// 点标签切换到另一个策略组；下方只渲染当前组，节点以卡片阵列（自适应多列）排布。
 /// </summary>
+/// <summary>
+/// 策略组显示设置面板里的一个可选项：值写进 settings.json，
+/// 标题与副标题走 <see cref="Loc"/> 本地化（key 形式，随语言切换刷新）。
+/// </summary>
+/// <param name="Value">存进 settings.json 的值（如 "tab" / "delay"）。</param>
+/// <param name="LabelKey">标题的本地化 key。</param>
+/// <param name="SubtitleKey">副标题的本地化 key。</param>
+public sealed record StyleOption(string Value, string LabelKey, string SubtitleKey)
+{
+    public string Label => Loc.T(LabelKey);
+    public string Subtitle => Loc.T(SubtitleKey);
+}
+
 public partial class ProxiesViewModel : ObservableObject
+
 {
     // 所有策略组（含被搜索过滤隐藏的），用于保留测速结果
     private readonly List<ProxyGroupViewModel> _allGroups = [];
@@ -119,6 +134,128 @@ public partial class ProxiesViewModel : ObservableObject
     }
 
     partial void OnFromCacheChanged(bool value) => OnPropertyChanged(nameof(CacheNoteVisibility));
+
+    // ---- 显示设置面板（参考 Bettbox 代理页 ProxiesSetting）----
+
+    /// <summary>是否为列表视图（所有策略组纵向堆叠）。</summary>
+    public bool IsListView => ProxiesStyleMetrics.IsListView;
+
+    /// <summary>是否为标签页视图（一次只显示一个策略组）。</summary>
+    public bool IsTabView => ProxiesStyleMetrics.IsTabView;
+
+    /// <summary>列表视图容器可见性。</summary>
+    public Visibility ListViewVisibility => IsListView ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>标签页视图容器可见性（含顶部标签条与单组内容）。</summary>
+    public Visibility TabViewVisibility => IsTabView ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>顶部策略组标签条可见性：只有标签页视图才需要。</summary>
+    public Visibility GroupTabsVisibility => IsTabView ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>「组头自动吸顶」开关是否可调（仅列表视图有意义）。</summary>
+    public Visibility StickyOptionVisibility => IsListView ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>「图标样式」分组是否可调（Bettbox 里也只有列表模式才显示这一组）。</summary>
+    public Visibility IconStyleSectionVisibility => IsListView ? Visibility.Visible : Visibility.Collapsed;
+
+    // 设置面板的选项表：value 存进 settings.json，label 走本地化
+    public IReadOnlyList<StyleOption> ViewTypeOptions { get; } =
+    [
+        new("tab", "proxies.style.tab", "proxies.style.tab.sub"),
+        new("list", "proxies.style.list", "proxies.style.list.sub"),
+    ];
+
+    public IReadOnlyList<StyleOption> SortTypeOptions { get; } =
+    [
+        new("none", "proxies.sort.none", "proxies.sort.none.sub"),
+        new("delay", "proxies.sort.delay", "proxies.sort.delay.sub"),
+        new("name", "proxies.sort.name", "proxies.sort.name.sub"),
+    ];
+
+    public IReadOnlyList<StyleOption> LayoutOptions { get; } =
+    [
+        new("tight", "proxies.layout.tight", "proxies.layout.tight.sub"),
+        new("standard", "proxies.layout.standard", "proxies.layout.standard.sub"),
+        new("loose", "proxies.layout.loose", "proxies.layout.loose.sub"),
+    ];
+
+    public IReadOnlyList<StyleOption> CardTypeOptions { get; } =
+    [
+        new("expand", "proxies.size.expand", "proxies.size.expand.sub"),
+        new("shrink", "proxies.size.shrink", "proxies.size.shrink.sub"),
+        new("min", "proxies.size.min", "proxies.size.min.sub"),
+    ];
+
+    public IReadOnlyList<StyleOption> IconStyleOptions { get; } =
+    [
+        new("standard", "proxies.icon.standard", "proxies.icon.standard.sub"),
+        new("none", "proxies.icon.none", "proxies.icon.none.sub"),
+        new("icon", "proxies.icon.iconOnly", "proxies.icon.iconOnly.sub"),
+    ];
+
+    /// <summary>当前选中的值（供设置面板高亮）。</summary>
+    public string CurrentViewType => ProxiesStyleMetrics.ViewType;
+    public string CurrentSortType => ProxiesStyleMetrics.SortType;
+    public string CurrentLayout => ProxiesStyleMetrics.Layout;
+    public string CurrentCardType => ProxiesStyleMetrics.CardType;
+    public string CurrentIconStyle => ProxiesStyleMetrics.IconStyle;
+    public bool AutoStickyHeader
+    {
+        get => ProxiesStyleMetrics.AutoStickyHeader;
+        set => SaveStyle(s => s.ProxiesAutoStickyHeader = value);
+    }
+
+    public bool ShowHiddenItems
+    {
+        get => ProxiesStyleMetrics.ShowHiddenItems;
+        set => SaveStyle(s => s.ProxiesShowHiddenItems = value);
+    }
+
+    /// <summary>设置面板的说明文字。</summary>
+    public string StyleHintText => Loc.T("proxies.settings.hint");
+
+    /// <summary>
+    /// 改一项显示设置：写盘 → 刷新整页（重排节点、切换视图容器、重算卡片几何）。
+    /// 只影响展示，不碰 sing-box 配置，所以不需要重启核心。
+    /// </summary>
+    public void ApplyStyleOption(Action<AppSettings, string> setter, Func<AppSettings, string> getter, string value)
+    {
+        var settings = AppServices.Settings;
+        // 值没变就别重复落盘（设置面板会因动画等原因重复触发）
+        if (string.Equals(getter(settings), value, StringComparison.Ordinal)) return;
+        setter(settings, value);
+        AppServices.Store.Save(settings);
+        RefreshStyleSettings();
+    }
+
+    /// <summary>布尔型显示设置（吸顶 / 显示隐藏项）。</summary>
+    private void SaveStyle(Action<AppSettings> mutate)
+    {
+        mutate(AppServices.Settings);
+        AppServices.Store.Save(AppServices.Settings);
+        RefreshStyleSettings();
+    }
+
+    /// <summary>设置变化后刷新所有与展示相关的绑定。</summary>
+    public void RefreshStyleSettings()
+    {
+        OnPropertyChanged(nameof(IsListView));
+        OnPropertyChanged(nameof(IsTabView));
+        OnPropertyChanged(nameof(ListViewVisibility));
+        OnPropertyChanged(nameof(TabViewVisibility));
+        OnPropertyChanged(nameof(GroupTabsVisibility));
+        OnPropertyChanged(nameof(StickyOptionVisibility));
+        OnPropertyChanged(nameof(IconStyleSectionVisibility));
+        OnPropertyChanged(nameof(CurrentViewType));
+        OnPropertyChanged(nameof(CurrentSortType));
+        OnPropertyChanged(nameof(CurrentLayout));
+        OnPropertyChanged(nameof(CurrentCardType));
+        OnPropertyChanged(nameof(CurrentIconStyle));
+        OnPropertyChanged(nameof(AutoStickyHeader));
+        OnPropertyChanged(nameof(ShowHiddenItems));
+        // 重排节点 + 重算卡片几何 + 按「显示隐藏项」重新过滤
+        ApplyFilter();
+    }
 
     public ProxiesViewModel()
     {
@@ -388,6 +525,9 @@ public partial class ProxiesViewModel : ObservableObject
         var visible = new List<ProxyGroupViewModel>(_allGroups.Count);
         foreach (var group in _allGroups)
         {
+            // 「显示已关闭的策略组」关着时，把「自定义」里禁用的组从列表里摘掉
+            if (!ProxiesStyleMetrics.ShowHiddenItems && IsGroupDisabled(group.Name)) continue;
+
             group.UpdateFilter(search);
             if (search.Length > 0
                 && group.Members.Count == 0
@@ -689,10 +829,34 @@ public partial class ProxyGroupViewModel : ObservableObject
 
     public void UpdateFilter(string search)
     {
-        Members = search.Length == 0
+        var matched = search.Length == 0
             ? [.. _source]
             : _source.Where(m => m.Name.Contains(search, StringComparison.OrdinalIgnoreCase)).ToList();
+        // 排序放在过滤之后：先按搜索词收窄，再按当前排序方式重排（ Bettbox 的
+        // proxiesStyleSetting.sortType 语义，未测速的节点排在已测速之后）
+        Members = [.. ProxiesStyleOptions.Sort(
+            matched, ProxiesStyleMetrics.SortType, m => m.Name, m => m.DelayMs)];
+        RefreshStyle();
     }
+
+    /// <summary>重新计算卡片几何（设置里的密度/尺寸变了之后调用）。</summary>
+    public void RefreshStyle()
+    {
+        OnPropertyChanged(nameof(ItemMinWidth));
+        OnPropertyChanged(nameof(ItemMinHeight));
+        OnPropertyChanged(nameof(ItemSpacing));
+        OnPropertyChanged(nameof(CardPadding));
+        OnPropertyChanged(nameof(CardCornerRadius));
+        foreach (var m in AllMembers) m.RefreshStyle();
+    }
+
+    // ---- 卡片几何（随设置里的密度/尺寸变化，UI 直接绑定）----
+
+    public double ItemMinWidth => ProxiesStyleMetrics.ItemMinWidth;
+    public double ItemMinHeight => ProxiesStyleMetrics.ItemMinHeight;
+    public double ItemSpacing => ProxiesStyleMetrics.ItemSpacing;
+    public Thickness CardPadding => ProxiesStyleMetrics.CardPaddingThickness;
+    public CornerRadius CardCornerRadius => ProxiesStyleMetrics.CardCorner;
 
     partial void OnSelectedNameChanged(string value)
     {
@@ -769,6 +933,57 @@ public partial class ProxyMemberViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(DelayBadgeText));
         OnPropertyChanged(nameof(DelayBrush));
+    }
+
+    // ---- 卡片显隐（随设置里的图标样式/尺寸变化）----
+
+    /// <summary>协议徽标是否可见（「仅图标」模式下让位）。</summary>
+    public Visibility ProtocolBadgeVisibility => ProxiesStyleMetrics.ShowProtocolBadge
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    /// <summary>延迟数字是否可见。</summary>
+    public Visibility DelayBadgeVisibility => ProxiesStyleMetrics.ShowDelayBadge
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    /// <summary>节点名称是否可见（「仅图标」模式下名称收进 ToolTip）。</summary>
+    public Visibility NodeNameVisibility => ProxiesStyleMetrics.ShowNodeName
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    /// <summary>展开尺寸下第三行附加信息是否可见。</summary>
+    public Visibility ExtraRowVisibility => ProxiesStyleMetrics.ShowExtraRow
+        ? Visibility.Visible
+        : Visibility.Collapsed;
+
+    public Thickness CardPadding => ProxiesStyleMetrics.CardPaddingThickness;
+
+    public CornerRadius CardCornerRadius => ProxiesStyleMetrics.CardCorner;
+
+    /// <summary>卡片内容水平对齐：「仅图标」模式居中，其余左对齐。</summary>
+    public HorizontalAlignment ContentAlignment => ProxiesStyleMetrics.ShowNodeName
+        ? HorizontalAlignment.Stretch
+        : HorizontalAlignment.Center;
+
+    /// <summary>
+    /// 「仅图标」模式下节点名称收进悬浮提示；名称本来就显示着时返回空串——
+    /// 空串不会弹出 ToolTip，也就不会在 UIA 树里多出一个同名文本节点
+    /// （那会让自动化点击点到提示气泡而不是卡片）。
+    /// </summary>
+    public string ToolTipName => ProxiesStyleMetrics.ShowNodeName ? "" : Name;
+
+    /// <summary>设置里的密度/尺寸/图标样式变化后刷新卡片显隐。</summary>
+    public void RefreshStyle()
+    {
+        OnPropertyChanged(nameof(ProtocolBadgeVisibility));
+        OnPropertyChanged(nameof(DelayBadgeVisibility));
+        OnPropertyChanged(nameof(NodeNameVisibility));
+        OnPropertyChanged(nameof(ExtraRowVisibility));
+        OnPropertyChanged(nameof(CardPadding));
+        OnPropertyChanged(nameof(CardCornerRadius));
+        OnPropertyChanged(nameof(ContentAlignment));
+        OnPropertyChanged(nameof(ToolTipName));
     }
 }
 

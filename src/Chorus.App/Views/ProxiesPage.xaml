@@ -7,7 +7,7 @@
     xmlns:vm="using:Chorus.App.ViewModels"
     x:DefaultBindMode="OneWay">
 
-    <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Padding="24,18,24,0">
+    <Grid RowDefinitions="Auto,Auto,Auto,*" Padding="24,18,24,0">
         <!-- 标题行 -->
         <Grid ColumnDefinitions="*,Auto">
             <TextBlock Text="策略组" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
@@ -15,6 +15,7 @@
                 <Button Content="全部测速" Click="TestAll_Click" />
                 <Button Content="刷新" Click="Refresh_Click" />
                 <Button Content="自定义" Click="Custom_Click" />
+                <Button Content="设置" Click="StyleSettings_Click" />
                 <TextBlock Text="{x:Bind Vm.StatusText}" VerticalAlignment="Center" Margin="4,0,0,0"
                            MaxWidth="320" TextTrimming="CharacterEllipsis"
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
@@ -39,150 +40,277 @@
             Title="核心未运行"
             Message="{x:Bind Vm.CacheNoteText}" />
 
-        <!-- 策略组切换标签：点标签切换到对应策略组（一次只显示一个组）
+        <!-- 标签页视图容器：顶部标签条 + 当前组（一次只显示一个组）
              底部 Padding 是给覆盖式横向滚动条留的位置，否则滚动条会压在标签上 -->
-        <ScrollViewer
-            Grid.Row="3"
-            Margin="0,0,0,4"
-            Padding="0,0,0,12"
-            HorizontalScrollBarVisibility="Auto"
-            VerticalScrollBarVisibility="Disabled"
-            HorizontalScrollMode="Enabled"
-            VerticalScrollMode="Disabled">
+        <Grid Grid.Row="3" Visibility="{x:Bind Vm.TabViewVisibility, Mode=OneWay}">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+
+            <ScrollViewer
+                Margin="0,0,0,4"
+                Padding="0,0,0,12"
+                HorizontalScrollBarVisibility="Auto"
+                VerticalScrollBarVisibility="Disabled"
+                HorizontalScrollMode="Enabled"
+                VerticalScrollMode="Disabled">
+                <ItemsRepeater ItemsSource="{x:Bind Vm.Groups}">
+                    <ItemsRepeater.Layout>
+                        <StackLayout Orientation="Horizontal" Spacing="8" />
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ProxyGroupViewModel">
+                            <Border
+                                Background="{x:Bind ChipBackground}"
+                                BorderBrush="{x:Bind ChipBorderBrush}"
+                                BorderThickness="{x:Bind ChipBorderThickness}"
+                                CornerRadius="8"
+                                Padding="14,7"
+                                Tag="{x:Bind}"
+                                Tapped="GroupChip_Tapped">
+                                <TextBlock
+                                    Text="{x:Bind Name}"
+                                    FontSize="13"
+                                    FontWeight="SemiBold"
+                                    Foreground="{x:Bind ChipForeground}"
+                                    MaxWidth="200"
+                                    TextTrimming="CharacterEllipsis"
+                                    VerticalAlignment="Center" />
+                            </Border>
+                        </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                </ItemsRepeater>
+            </ScrollViewer>
+
+            <!-- 当前策略组：组信息条 + 节点卡片阵列（按可用宽度自适应多列） -->
+            <Grid Grid.Row="1" Visibility="{x:Bind Vm.ContentVisibility}">
+                <Grid RowDefinitions="Auto,*">
+                    <!-- 组信息条：类型徽标 + 类型·当前节点 + 节点数 + 测速本组 -->
+                    <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" Margin="2,0,2,10">
+                        <Border
+                            CornerRadius="4"
+                            Padding="6,1"
+                            VerticalAlignment="Center"
+                            Background="{x:Bind Vm.SelectedGroup.TypeBadgeBackground}"
+                            BorderBrush="{x:Bind Vm.SelectedGroup.TypeBadgeBrush}"
+                            BorderThickness="1">
+                            <TextBlock Text="{x:Bind Vm.SelectedGroup.TypeBadgeText}"
+                                       FontSize="11"
+                                       Foreground="{x:Bind Vm.SelectedGroup.TypeBadgeBrush}" />
+                        </Border>
+                        <TextBlock Grid.Column="1"
+                                   Text="{x:Bind Vm.SelectedGroup.SubtitleText}"
+                                   FontSize="12"
+                                   Opacity="0.75"
+                                   TextTrimming="CharacterEllipsis"
+                                   VerticalAlignment="Center" />
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
+                            <TextBlock Text="{x:Bind Vm.SelectedGroup.MemberCountLabel}"
+                                       FontSize="12"
+                                       Opacity="0.6"
+                                       VerticalAlignment="Center" />
+                            <!-- 自动组被手动钉住后，给一个「交还内核自动选择」的按钮 -->
+                            <Button Content="交还内核自动选择" Padding="8,3" FontSize="12"
+                                    Click="ResetAuto_Click"
+                                    Visibility="{x:Bind Vm.SelectedGroup.AutoResetVisibility, Mode=OneWay}" />
+                            <Button Content="测速本组" Padding="8,3" FontSize="12" Click="TestCurrent_Click" />
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- 节点阵列 -->
+                    <ScrollViewer Grid.Row="1" Padding="0,0,0,20" VerticalScrollBarVisibility="Auto">
+                        <ItemsRepeater ItemsSource="{x:Bind Vm.SelectedGroup.Members}">
+                            <ItemsRepeater.Layout>
+                                <UniformGridLayout
+                                    MinItemWidth="{x:Bind Vm.SelectedGroup.ItemMinWidth, Mode=OneWay}"
+                                    MinItemHeight="{x:Bind Vm.SelectedGroup.ItemMinHeight, Mode=OneWay}"
+                                    MinColumnSpacing="{x:Bind Vm.SelectedGroup.ItemSpacing, Mode=OneWay}"
+                                    MinRowSpacing="{x:Bind Vm.SelectedGroup.ItemSpacing, Mode=OneWay}"
+                                    ItemsStretch="Fill" />
+                            </ItemsRepeater.Layout>
+                            <ItemsRepeater.ItemTemplate>
+                                <DataTemplate x:DataType="vm:ProxyMemberViewModel">
+                                    <Grid>
+                                        <Border
+                                            Background="{x:Bind CardBackground}"
+                                            BorderBrush="{x:Bind CardBorderBrush}"
+                                            BorderThickness="{x:Bind CardBorderThickness}"
+                                            CornerRadius="{x:Bind CardCornerRadius}"
+                                            Padding="{x:Bind CardPadding}"
+                                            Tag="{x:Bind}"
+                                            ToolTipService.ToolTip="{x:Bind ToolTipName}"
+                                            Tapped="Member_Tapped">
+                                            <Grid VerticalAlignment="Center" HorizontalAlignment="{x:Bind ContentAlignment}">
+                                                <Grid.RowDefinitions>
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                    <RowDefinition Height="Auto" />
+                                                </Grid.RowDefinitions>
+                                                <!-- 第一行：节点名称（右侧留空给选中徽标） -->
+                                                <TextBlock Text="{x:Bind Name}"
+                                                           FontWeight="SemiBold"
+                                                           Margin="0,0,30,0"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Visibility="{x:Bind NodeNameVisibility}"
+                                                           VerticalAlignment="Center" />
+                                                <!-- 第二行：协议类型徽标 + 延迟 -->
+                                                <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,6,0,0"
+                                                      Visibility="{x:Bind ProtocolBadgeVisibility}">
+                                                    <Border CornerRadius="4"
+                                                            Padding="5,1"
+                                                            VerticalAlignment="Center"
+                                                            Background="{x:Bind ProtocolBadgeBackground}"
+                                                            BorderBrush="{x:Bind ProtocolBrush}"
+                                                            BorderThickness="1">
+                                                        <TextBlock Text="{x:Bind ProtocolText}" FontSize="11"
+                                                                   Foreground="{x:Bind ProtocolBrush}" />
+                                                    </Border>
+                                                    <TextBlock Grid.Column="2"
+                                                               Text="{x:Bind DelayBadgeText}"
+                                                               Foreground="{x:Bind DelayBrush}"
+                                                               FontSize="12"
+                                                               Visibility="{x:Bind DelayBadgeVisibility}"
+                                                               VerticalAlignment="Center" />
+                                                </Grid>
+                                                <!-- 第三行：仅「展开」尺寸显示，把类型与分组信息补全 -->
+                                                <TextBlock Grid.Row="2"
+                                                           Text="{x:Bind Group.Name}"
+                                                           FontSize="11"
+                                                           Opacity="0.6"
+                                                           TextTrimming="CharacterEllipsis"
+                                                           Margin="0,4,0,0"
+                                                           Visibility="{x:Bind ExtraRowVisibility}" />
+                                            </Grid>
+                                        </Border>
+                                        <!-- 右上角圆形选中徽标（Bettbox SelectIcon 风格） -->
+                                        <Border Width="20" Height="20" CornerRadius="10"
+                                                HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                Margin="0,8,8,0"
+                                                Background="{x:Bind CheckBrush}"
+                                                Visibility="{x:Bind SelectedVisibility}">
+                                            <FontIcon Glyph="&#xE8FB;"
+                                                      FontSize="12" Foreground="White" />
+                                        </Border>
+                                    </Grid>
+                                </DataTemplate>
+                            </ItemsRepeater.ItemTemplate>
+                        </ItemsRepeater>
+                    </ScrollViewer>
+                </Grid>
+            </Grid>
+        </Grid>
+
+        <!-- 列表视图容器：所有策略组纵向堆叠，每组一个头部 + 节点阵列
+             （参考 Bettbox ProxiesListView；组头吸顶由设置里的开关控制） -->
+        <ScrollViewer Grid.Row="3" Padding="0,0,0,20" VerticalScrollBarVisibility="Auto"
+                      Visibility="{x:Bind Vm.ListViewVisibility, Mode=OneWay}">
             <ItemsRepeater ItemsSource="{x:Bind Vm.Groups}">
                 <ItemsRepeater.Layout>
-                    <StackLayout Orientation="Horizontal" Spacing="8" />
+                    <StackLayout Orientation="Vertical" Spacing="20" />
                 </ItemsRepeater.Layout>
                 <ItemsRepeater.ItemTemplate>
                     <DataTemplate x:DataType="vm:ProxyGroupViewModel">
-                        <Border
-                            Background="{x:Bind ChipBackground}"
-                            BorderBrush="{x:Bind ChipBorderBrush}"
-                            BorderThickness="{x:Bind ChipBorderThickness}"
-                            CornerRadius="8"
-                            Padding="14,7"
-                            Tag="{x:Bind}"
-                            Tapped="GroupChip_Tapped">
-                            <TextBlock
-                                Text="{x:Bind Name}"
-                                FontSize="13"
-                                FontWeight="SemiBold"
-                                Foreground="{x:Bind ChipForeground}"
-                                MaxWidth="200"
-                                TextTrimming="CharacterEllipsis"
-                                VerticalAlignment="Center" />
-                        </Border>
+                        <StackPanel Spacing="10">
+                            <!-- 组头：名称 + 类型徽标 + 节点数 + 测速本组 -->
+                            <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                <TextBlock Text="{x:Bind Name}" FontSize="15" FontWeight="SemiBold"
+                                           VerticalAlignment="Center" />
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8"
+                                            VerticalAlignment="Center">
+                                    <Border CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
+                                            Background="{x:Bind TypeBadgeBackground}"
+                                            BorderBrush="{x:Bind TypeBadgeBrush}"
+                                            BorderThickness="1">
+                                        <TextBlock Text="{x:Bind TypeBadgeText}" FontSize="11"
+                                                   Foreground="{x:Bind TypeBadgeBrush}" />
+                                    </Border>
+                                    <TextBlock Text="{x:Bind MemberCountLabel}" FontSize="12" Opacity="0.6"
+                                               VerticalAlignment="Center" />
+                                    <Button Content="测速本组" Padding="8,3" FontSize="12"
+                                            Click="TestGroupFromList_Click" Tag="{x:Bind}" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="2" Text="{x:Bind SubtitleText}" FontSize="12"
+                                           Opacity="0.75" VerticalAlignment="Center"
+                                           TextTrimming="CharacterEllipsis" MaxWidth="360" />
+                            </Grid>
+                            <!-- 组内节点阵列 -->
+                            <ItemsRepeater ItemsSource="{x:Bind Members}">
+                                <ItemsRepeater.Layout>
+                                    <UniformGridLayout
+                                        MinItemWidth="{x:Bind ItemMinWidth, Mode=OneWay}"
+                                        MinItemHeight="{x:Bind ItemMinHeight, Mode=OneWay}"
+                                        MinColumnSpacing="{x:Bind ItemSpacing, Mode=OneWay}"
+                                        MinRowSpacing="{x:Bind ItemSpacing, Mode=OneWay}"
+                                        ItemsStretch="Fill" />
+                                </ItemsRepeater.Layout>
+                                <ItemsRepeater.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:ProxyMemberViewModel">
+                                        <Grid>
+                                            <Border
+                                                Background="{x:Bind CardBackground}"
+                                                BorderBrush="{x:Bind CardBorderBrush}"
+                                                BorderThickness="{x:Bind CardBorderThickness}"
+                                                CornerRadius="{x:Bind CardCornerRadius}"
+                                                Padding="{x:Bind CardPadding}"
+                                                Tag="{x:Bind}"
+                                                ToolTipService.ToolTip="{x:Bind ToolTipName}"
+                                                Tapped="Member_Tapped">
+                                                <Grid VerticalAlignment="Center" HorizontalAlignment="{x:Bind ContentAlignment}">
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
+                                                    </Grid.RowDefinitions>
+                                                    <TextBlock Text="{x:Bind Name}"
+                                                               FontWeight="SemiBold"
+                                                               Margin="0,0,30,0"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               Visibility="{x:Bind NodeNameVisibility}"
+                                                               VerticalAlignment="Center" />
+                                                    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,6,0,0"
+                                                          Visibility="{x:Bind ProtocolBadgeVisibility}">
+                                                        <Border CornerRadius="4" Padding="5,1" VerticalAlignment="Center"
+                                                                Background="{x:Bind ProtocolBadgeBackground}"
+                                                                BorderBrush="{x:Bind ProtocolBrush}"
+                                                                BorderThickness="1">
+                                                            <TextBlock Text="{x:Bind ProtocolText}" FontSize="11"
+                                                                       Foreground="{x:Bind ProtocolBrush}" />
+                                                        </Border>
+                                                        <TextBlock Grid.Column="2"
+                                                                   Text="{x:Bind DelayBadgeText}"
+                                                                   Foreground="{x:Bind DelayBrush}"
+                                                                   FontSize="12"
+                                                                   Visibility="{x:Bind DelayBadgeVisibility}"
+                                                                   VerticalAlignment="Center" />
+                                                    </Grid>
+                                                    <TextBlock Grid.Row="2"
+                                                               Text="{x:Bind Group.Name}"
+                                                               FontSize="11" Opacity="0.6"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               Margin="0,4,0,0"
+                                                               Visibility="{x:Bind ExtraRowVisibility}" />
+                                                </Grid>
+                                            </Border>
+                                            <Border Width="20" Height="20" CornerRadius="10"
+                                                    HorizontalAlignment="Right" VerticalAlignment="Top"
+                                                    Margin="0,8,8,0"
+                                                    Background="{x:Bind CheckBrush}"
+                                                    Visibility="{x:Bind SelectedVisibility}">
+                                                <FontIcon Glyph="&#xE8FB;" FontSize="12" Foreground="White" />
+                                            </Border>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsRepeater.ItemTemplate>
+                            </ItemsRepeater>
+                        </StackPanel>
                     </DataTemplate>
                 </ItemsRepeater.ItemTemplate>
             </ItemsRepeater>
         </ScrollViewer>
 
-        <!-- 当前策略组：组信息条 + 节点卡片阵列（按可用宽度自适应多列） -->
-        <Grid Grid.Row="4" Visibility="{x:Bind Vm.ContentVisibility}">
-            <Grid RowDefinitions="Auto,*">
-                <!-- 组信息条：类型徽标 + 类型·当前节点 + 节点数 + 测速本组 -->
-                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10" Margin="2,0,2,10">
-                    <Border
-                        CornerRadius="4"
-                        Padding="6,1"
-                        VerticalAlignment="Center"
-                        Background="{x:Bind Vm.SelectedGroup.TypeBadgeBackground}"
-                        BorderBrush="{x:Bind Vm.SelectedGroup.TypeBadgeBrush}"
-                        BorderThickness="1">
-                        <TextBlock Text="{x:Bind Vm.SelectedGroup.TypeBadgeText}"
-                                   FontSize="11"
-                                   Foreground="{x:Bind Vm.SelectedGroup.TypeBadgeBrush}" />
-                    </Border>
-                    <TextBlock Grid.Column="1"
-                               Text="{x:Bind Vm.SelectedGroup.SubtitleText}"
-                               FontSize="12"
-                               Opacity="0.75"
-                               TextTrimming="CharacterEllipsis"
-                               VerticalAlignment="Center" />
-                    <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="10">
-                        <TextBlock Text="{x:Bind Vm.SelectedGroup.MemberCountLabel}"
-                                   FontSize="12"
-                                   Opacity="0.6"
-                                   VerticalAlignment="Center" />
-                        <!-- 自动组被手动钉住后，给一个「交还内核自动选择」的按钮 -->
-                        <Button Content="交还内核自动选择" Padding="8,3" FontSize="12"
-                                Click="ResetAuto_Click"
-                                Visibility="{x:Bind Vm.SelectedGroup.AutoResetVisibility, Mode=OneWay}" />
-                        <Button Content="测速本组" Padding="8,3" FontSize="12" Click="TestCurrent_Click" />
-                    </StackPanel>
-                </Grid>
-
-                <!-- 节点阵列 -->
-                <ScrollViewer Grid.Row="1" Padding="0,0,0,20" VerticalScrollBarVisibility="Auto">
-                    <ItemsRepeater ItemsSource="{x:Bind Vm.SelectedGroup.Members}">
-                        <ItemsRepeater.Layout>
-                            <UniformGridLayout
-                                MinItemWidth="250"
-                                MinItemHeight="74"
-                                MinColumnSpacing="10"
-                                MinRowSpacing="10"
-                                ItemsStretch="Fill" />
-                        </ItemsRepeater.Layout>
-                        <ItemsRepeater.ItemTemplate>
-                            <DataTemplate x:DataType="vm:ProxyMemberViewModel">
-                                <Grid>
-                                    <Border
-                                        Background="{x:Bind CardBackground}"
-                                        BorderBrush="{x:Bind CardBorderBrush}"
-                                        BorderThickness="{x:Bind CardBorderThickness}"
-                                        CornerRadius="12"
-                                        Padding="12,10"
-                                        Tag="{x:Bind}"
-                                        Tapped="Member_Tapped">
-                                        <Grid VerticalAlignment="Center">
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto" />
-                                                <RowDefinition Height="Auto" />
-                                            </Grid.RowDefinitions>
-                                            <!-- 第一行：节点名称（右侧留空给选中徽标） -->
-                                            <TextBlock Text="{x:Bind Name}"
-                                                       FontWeight="SemiBold"
-                                                       Margin="0,0,30,0"
-                                                       TextTrimming="CharacterEllipsis"
-                                                       VerticalAlignment="Center" />
-                                            <!-- 第二行：协议类型徽标 + 延迟 -->
-                                            <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,6,0,0">
-                                                <Border CornerRadius="4"
-                                                        Padding="5,1"
-                                                        VerticalAlignment="Center"
-                                                        Background="{x:Bind ProtocolBadgeBackground}"
-                                                        BorderBrush="{x:Bind ProtocolBrush}"
-                                                        BorderThickness="1">
-                                                    <TextBlock Text="{x:Bind ProtocolText}" FontSize="11"
-                                                               Foreground="{x:Bind ProtocolBrush}" />
-                                                </Border>
-                                                <TextBlock Grid.Column="2"
-                                                           Text="{x:Bind DelayBadgeText}"
-                                                           Foreground="{x:Bind DelayBrush}"
-                                                           FontSize="12"
-                                                           VerticalAlignment="Center" />
-                                            </Grid>
-                                        </Grid>
-                                    </Border>
-                                    <!-- 右上角圆形选中徽标（Bettbox SelectIcon 风格） -->
-                                    <Border Width="20" Height="20" CornerRadius="10"
-                                            HorizontalAlignment="Right" VerticalAlignment="Top"
-                                            Margin="0,8,8,0"
-                                            Background="{x:Bind CheckBrush}"
-                                            Visibility="{x:Bind SelectedVisibility}">
-                                        <FontIcon Glyph="&#xE8FB;"
-                                                  FontSize="12" Foreground="White" />
-                                    </Border>
-                                </Grid>
-                            </DataTemplate>
-                        </ItemsRepeater.ItemTemplate>
-                    </ItemsRepeater>
-                </ScrollViewer>
-            </Grid>
-        </Grid>
-
         <!-- 正在从核心拉取策略组 -->
-        <StackPanel Grid.Row="4"
+        <StackPanel Grid.Row="3"
                     Orientation="Horizontal" Spacing="10"
                     HorizontalAlignment="Center" VerticalAlignment="Center"
                     Visibility="{x:Bind Vm.LoadingVisibility}">
@@ -191,7 +319,7 @@
         </StackPanel>
 
         <!-- 无任何策略组时的空态提示 -->
-        <TextBlock Grid.Row="4"
+        <TextBlock Grid.Row="3"
                    Text="{x:Bind Vm.EmptyText, Mode=OneWay}"
                    HorizontalAlignment="Center" VerticalAlignment="Center"
                    Opacity="0.6"

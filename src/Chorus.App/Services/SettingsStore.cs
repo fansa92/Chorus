@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Chorus.Core.Configuration;
 using Chorus.Core.Models;
 
 namespace Chorus.App.Services;
@@ -22,17 +23,29 @@ public sealed class SettingsStore
 
     public AppSettings Load()
     {
+        var settings = new AppSettings();
         try
         {
             if (File.Exists(FilePath))
-                return JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), Options) ?? new AppSettings();
+                settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(FilePath), Options) ?? new AppSettings();
         }
         catch
         {
             // 配置损坏时回退到默认值
         }
-        return new AppSettings();
+        // 手改 settings.json 可能写出非法值（大小写混用、拼错），这里归一到合法集合，
+        // 否则 UI 的选中态会全部落空。归一化改过值就顺手落盘，让配置自愈。
+        var before = Serialize(settings);
+        ProxiesStyleOptions.Sanitize(settings);
+        if (Serialize(settings) != before)
+        {
+            try { Save(settings); }
+            catch { /* 落盘失败不致命：内存里已经是合法值，界面照常能用 */ }
+        }
+        return settings;
     }
+
+    private static string Serialize(AppSettings settings) => JsonSerializer.Serialize(settings, Options);
 
     public void Save(AppSettings settings)
     {
