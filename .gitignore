@@ -1,14 +1,26 @@
+# 构建 / 测试中间产物（dotnet build / test / publish 生成，绝不入库）
 bin/
 obj/
 publish/
+dist/
+.artifacts/
+TestResults/
+*.trx
+*.coverage
+*.coveragexml
+*.binlog
+/*.zip
+
+# 用户/编辑器
 .vs/
 .vscode/
 *.user
 *.suo
 *.log
+
+# 打包产物
 AppPackages/
 BundleArtifacts/
 *.appx
 *.msix
 *.pdb
-dist/
