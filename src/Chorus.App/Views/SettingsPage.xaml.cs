@@ -33,6 +33,7 @@ public sealed partial class SettingsPage : Page
             "ipv6" => Ipv6Toggle,
             "routing" => RoutingToggle,
             "closeToTray" => CloseToTrayToggle,
+            "geoIp" => GeoIpToggle,
             _ => (ToggleSwitch?)null,
         };
         if (toggle is not null) toggle.IsOn = !toggle.IsOn;

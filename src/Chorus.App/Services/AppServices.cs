@@ -3,6 +3,7 @@ using Chorus.App.ViewModels;
 using Chorus.Core;
 using Chorus.Core.ClashApi;
 using Chorus.Core.Models;
+using Chorus.Core.Net;
 using Chorus.Core.State;
 
 namespace Chorus.App.Services;
@@ -40,6 +41,9 @@ public static class AppServices
     public static void Initialize()
     {
         Settings = Store.Load();
+
+        // 出口 IP 归属地的本地段表：装载上次下载的完整表（没有就继续用内置精简表）
+        GeoIpDataUpdater.TryLoadIntoLookup();
         if (string.IsNullOrWhiteSpace(Settings.ClashApiSecret))
         {
             Settings.ClashApiSecret = Convert.ToHexString(RandomNumberGenerator.GetBytes(16));
@@ -76,6 +80,9 @@ public static class AppServices
         RulesVm = new RulesViewModel();
         LogsVm = new LogsViewModel();
         SettingsVm = new SettingsViewModel();
+
+        // 后台检查是否需要自动更新段表（开关开着且超过 30 天没更新才拉，不阻塞启动）
+        _ = SettingsVm.EnsureGeoIpAutoUpdateAsync();
     }
 
     /// <summary>

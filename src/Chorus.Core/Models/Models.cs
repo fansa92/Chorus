@@ -180,6 +180,21 @@ public sealed class AppSettings
     /// <summary>是否显示被「自定义」面板关掉的策略组（关闭时列表里不出现这些组）。</summary>
     public bool ProxiesShowHiddenItems { get; set; }
 
+    // ---- 出口 IP 归属地的本地 GeoIP 段表（在线更新）----
+    // 内置表只覆盖常见国家；打开自动更新后会用下载的全球段表覆盖它。
+
+    /// <summary>是否定期自动更新本地 GeoIP 段表（超过 30 天没更新才拉一次）。</summary>
+    public bool GeoIpAutoUpdate { get; set; } = true;
+
+    /// <summary>上一次成功更新的时间；null 表示从未更新过（仍在用内置精简表）。</summary>
+    public DateTimeOffset? GeoIpLastUpdated { get; set; }
+
+    /// <summary>当前生效的段表条数（内置表或下载表）。</summary>
+    public int GeoIpEntryCount { get; set; }
+
+    /// <summary>上一次成功更新用的数据源 URL（便于排查）。</summary>
+    public string? GeoIpSource { get; set; }
+
     /// <summary>当前选中的订阅；未选中（或选中的已被删除）时返回 null。</summary>
     public SubscriptionEntry? ActiveSubscription() =>
         string.IsNullOrWhiteSpace(ActiveSubscriptionUrl)

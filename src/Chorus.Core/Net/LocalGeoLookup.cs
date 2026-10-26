@@ -120,6 +120,41 @@ public static class LocalGeoLookup
         .OrderByDescending(r => r.Prefix)
         .ToArray();
 
+    // ---- 可选的外部完整段表（设置页「立即更新」下载的全球数据）----
+
+    /// <summary>外部段表：按起始地址升序的闭区间 + 对应国家代码。</summary>
+    private sealed record ExternalTable(uint[] Starts, uint[] Ends, string[] Codes);
+
+    /// <summary>已加载的外部表；null 表示仍在用内置精简表。整体替换以保证读取线程安全。</summary>
+    private static volatile ExternalTable? _external;
+
+    /// <summary>是否已加载在线下载的完整段表（否则用内置精简表）。</summary>
+    public static bool HasExternalData => _external is not null;
+
+    /// <summary>当前实际用于查询的段数（有外部表时按外部表算）。</summary>
+    public static int RangeCount => _external?.Starts.Length ?? Ranges.Length;
+
+    /// <summary>
+    /// 装载外部段表。数组必须按 <paramref name="starts"/> 升序、三段等长。
+    /// 传 null / 空表 / 长度不一致时视为清空，回退到内置表。
+    /// </summary>
+    public static void LoadExternal(uint[]? starts, uint[]? ends, string[]? codes)
+    {
+        if (starts is null || ends is null || codes is null
+            || starts.Length == 0
+            || starts.Length != ends.Length
+            || starts.Length != codes.Length)
+        {
+            _external = null;
+            return;
+        }
+
+        _external = new ExternalTable(starts, ends, codes);
+    }
+
+    /// <summary>丢弃外部段表，回到内置精简表。</summary>
+    public static void ClearExternal() => _external = null;
+
     /// <summary>
     /// 本地查询一个 IPv4 的国家/地区。命中返回信息，未命中返回 null。
     /// 私有地址直接标成「内网」。
@@ -140,6 +175,17 @@ public static class LocalGeoLookup
             return null; // IPv6 的本地库暂不覆盖
 
         var value = ToUInt32(addr);
+
+        // 外部完整表优先：按起始地址二分，落在 [start, end] 内即命中；
+        // 未命中再退回内置精简表兜底（外部表理论上覆盖全球，但下载数据可能不完整）。
+        if (_external is { } ext && FindExternal(ext, value) is { } extCode)
+        {
+            return new IpInfo(ip, CountryNames.Of(extCode), "", "", extCode)
+            {
+                Source = "local",
+            };
+        }
+
         foreach (var range in Sorted)
         {
             if (!InRange(value, range)) continue;
@@ -167,8 +213,23 @@ public static class LocalGeoLookup
         return (value & mask) == (range.Network & mask);
     }
 
-    /// <summary>本地库里有多少条段（界面/测试用）。</summary>
-    public static int RangeCount => Ranges.Length;
+    /// <summary>
+    /// 在外部表里二分查找。表按起始地址升序、区间互不重叠：
+    /// value 落在某条 [start, end] 内即命中，否则按大小收缩区间。
+    /// </summary>
+    private static string? FindExternal(ExternalTable table, uint value)
+    {
+        var lo = 0;
+        var hi = table.Starts.Length - 1;
+        while (lo <= hi)
+        {
+            var mid = lo + ((hi - lo) >> 1);
+            if (value < table.Starts[mid]) { hi = mid - 1; continue; }
+            if (value > table.Ends[mid]) { lo = mid + 1; continue; }
+            return table.Codes[mid];
+        }
+        return null;
+    }
 
     /// <summary>
     /// 检查段表里有没有「同一个地址被两个国家段覆盖」的重叠。

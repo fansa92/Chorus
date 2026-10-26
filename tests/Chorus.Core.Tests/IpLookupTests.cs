@@ -5,6 +5,7 @@ using Xunit;
 namespace Chorus.Core.Tests;
 
 /// <summary>多源 IP 归属解析 + 本地 GeoIP 兜底的行为约束。</summary>
+[Collection("LocalGeoLookupStatic")]
 public class IpLookupTests
 {
     // ---- 多源解析 ----

@@ -1,9 +1,11 @@
 using System.Text.RegularExpressions;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Controls;
 using Chorus.App.Services;
 using Chorus.Core;
 using Chorus.Core.Models;
+using Chorus.Core.Net;
 using Chorus.Core.Parsing;
 
 namespace Chorus.App.ViewModels;
@@ -42,6 +44,14 @@ public partial class SettingsViewModel : ObservableObject
     /// <summary>页面底部的版本号：应用取发布时注入的版本（git tag），核心取 sing-box 自报版本。</summary>
     [ObservableProperty] private string _appVersion = AppInfo.Version;
     [ObservableProperty] private string _coreVersionText = "";
+
+    // ---- 出口 IP 归属地的 GeoIP 段表（设置页「GeoIP 数据」分组）----
+
+    /// <summary>自动更新开关：开着时超过 30 天没更新就自动拉一次。</summary>
+    [ObservableProperty] private bool _geoIpAutoUpdate = true;
+
+    /// <summary>正在下载/写入段表：压住重复点击。</summary>
+    [ObservableProperty] private bool _geoIpBusy;
 
     public string[] LogLevels { get; } = ["debug", "info", "warn", "error"];
 
@@ -174,7 +184,12 @@ public partial class SettingsViewModel : ObservableObject
         Theme = string.IsNullOrWhiteSpace(settings.Theme) ? "system" : settings.Theme;
         Language = string.IsNullOrWhiteSpace(settings.Language) ? "system" : settings.Language;
         ManualNodeCount = settings.Profile.Nodes.Count;
+        GeoIpAutoUpdate = settings.GeoIpAutoUpdate;
         _suppress = false;
+
+        OnPropertyChanged(nameof(GeoIpStatusText));
+        OnPropertyChanged(nameof(GeoIpUpdateLabel));
+        OnPropertyChanged(nameof(GeoIpUpdateEnabled));
     }
 
     partial void OnMixedPortChanged(int value) => OnPropertyChanged(nameof(MixedPortLabel));
@@ -260,6 +275,93 @@ public partial class SettingsViewModel : ObservableObject
         if (_suppress || string.IsNullOrWhiteSpace(value)) return;
         Apply(settings => settings.LogLevel = value);
     }
+
+    partial void OnGeoIpAutoUpdateChanged(bool value)
+    {
+        if (_suppress) return;
+        Apply(settings => settings.GeoIpAutoUpdate = value);
+    }
+
+    partial void OnGeoIpBusyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(GeoIpUpdateLabel));
+        OnPropertyChanged(nameof(GeoIpUpdateEnabled));
+    }
+
+    // ---- GeoIP 段表：状态文本 + 立即更新 ----
+
+    /// <summary>「已更新：198,432 条 · 2026-10-01」或「内置精简表：60 条」。</summary>
+    public string GeoIpStatusText
+    {
+        get
+        {
+            if (!LocalGeoLookup.HasExternalData)
+                return $"内置精简表：{LocalGeoLookup.RangeCount} 条（未下载完整数据）";
+
+            var when = AppServices.Settings.GeoIpLastUpdated is { } stamp
+                ? stamp.LocalDateTime.ToString("yyyy-MM-dd")
+                : "日期未知";
+            return $"已更新：{LocalGeoLookup.RangeCount:N0} 条 · {when}";
+        }
+    }
+
+    public string GeoIpUpdateLabel => GeoIpBusy ? "更新中…" : "立即更新";
+
+    public bool GeoIpUpdateEnabled => !GeoIpBusy;
+
+    /// <summary>点「立即更新」：下载全球段表、落盘、装载进查询表。</summary>
+    [RelayCommand]
+    private async Task UpdateGeoIpAsync()
+    {
+        if (GeoIpBusy) return;
+
+        GeoIpBusy = true;
+        Show("正在更新 GeoIP 数据", "正在下载全球 IP 段表，可能需要几十秒…", InfoBarSeverity.Informational);
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromMinutes(3) };
+            var result = await GeoIpDataUpdater.DownloadAndSaveAsync(http);
+
+            var settings = AppServices.Settings;
+            settings.GeoIpLastUpdated = result.UpdatedAt;
+            settings.GeoIpEntryCount = result.Count;
+            settings.GeoIpSource = result.Source;
+            AppServices.Store.Save(settings);
+
+            OnPropertyChanged(nameof(GeoIpStatusText));
+            Show("GeoIP 数据已更新",
+                $"共 {result.Count:N0} 条段，来源 {ShortHost(result.Source)}。",
+                InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            Show("更新失败", "所有数据源都不可用：" + ex.GetBaseException().Message,
+                InfoBarSeverity.Error);
+        }
+        finally
+        {
+            GeoIpBusy = false;
+            OnPropertyChanged(nameof(GeoIpStatusText));
+        }
+    }
+
+    /// <summary>启动时调用：开关开着、且距上次更新超过 30 天，就在后台拉一次。</summary>
+    public async Task EnsureGeoIpAutoUpdateAsync()
+    {
+        var settings = AppServices.Settings;
+        if (!settings.GeoIpAutoUpdate) return;
+
+        if (settings.GeoIpLastUpdated is { } last
+            && DateTimeOffset.Now - last < TimeSpan.FromDays(30))
+        {
+            return;
+        }
+
+        await UpdateGeoIpAsync();
+    }
+
+    private static string ShortHost(string url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) ? uri.Host : url;
 
     /// <summary>端口由对话框输入后调用；返回 false 表示数值超出 1-65535。</summary>
     public bool TrySetPort(int port, bool mixed)

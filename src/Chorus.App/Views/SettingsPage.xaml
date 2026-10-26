@@ -299,6 +299,40 @@
                 </StackPanel>
             </Border>
 
+            <!-- ===== GeoIP 数据 ===== -->
+            <TextBlock Text="GeoIP 数据" Style="{StaticResource SectionHeaderStyle}" Margin="2,22,0,8" />
+            <Border Style="{StaticResource SettingsCardStyle}">
+                <StackPanel>
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="geoIp" Tapped="ToggleRow_Tapped"
+                          AutomationProperties.Name="自动更新 GeoIP 段表">
+                        <StackPanel>
+                            <TextBlock Text="自动更新 GeoIP 段表" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="超过 30 天自动下载一次全球 IP 段表，用于出口 IP 归属地兜底（在线接口全挂时才用到）" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="GeoIpToggle" Grid.Column="1"
+                                      OnContent="" OffContent="" MinWidth="0"
+                                      IsHitTestVisible="False" VerticalAlignment="Center"
+                                      IsOn="{x:Bind Vm.GeoIpAutoUpdate, Mode=TwoWay}" />
+                    </Grid>
+
+                    <Border Style="{StaticResource RowDividerStyle}" />
+
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto">
+                        <StackPanel>
+                            <TextBlock Text="当前段表" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="{x:Bind Vm.GeoIpStatusText, Mode=OneWay}" />
+                        </StackPanel>
+                        <Button Grid.Column="1" VerticalAlignment="Center" MinWidth="96"
+                                Content="{x:Bind Vm.GeoIpUpdateLabel, Mode=OneWay}"
+                                IsEnabled="{x:Bind Vm.GeoIpUpdateEnabled, Mode=OneWay}"
+                                Command="{x:Bind Vm.UpdateGeoIpCommand}" />
+                    </Grid>
+                </StackPanel>
+            </Border>
+
             <!-- ===== 页脚：版本号 ===== -->
             <Border Margin="2,26,0,0" Padding="0,14,0,0"
                     BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
