@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Chorus.App.Services;
@@ -29,12 +30,22 @@ public sealed partial class SubscriptionsPage : Page
 
     /// <summary>
     /// 点卡片空白处 = 把这份订阅设为当前使用的配置（Bettbox 里点 profile 卡片的行为）。
-    /// 按钮自己会吃掉指针事件，所以点「更新/编辑/删除」不会误触发这里的切换。
+    /// Button 只吃掉「按下/抬起」，Tapped 仍会冒泡到卡片，所以点「更新/检查/编辑/删除」
+    /// 也会走到这里 —— 必须按指针的原始来源判断，落在按钮上就不算切换配置。
     /// </summary>
     private async void Card_Tapped(object sender, TappedRoutedEventArgs e)
     {
+        if (TappedInsideButton(e.OriginalSource)) return;
         if (ItemOf(sender) is not { } item || item.IsActive) return;
         await Vm.SetActiveAsync(item);
+    }
+
+    private static bool TappedInsideButton(object? source)
+    {
+        for (var node = source as DependencyObject; node is not null; node = VisualTreeHelper.GetParent(node))
+            if (node is ButtonBase)
+                return true;
+        return false;
     }
 
     private async void UpdateItem_Click(object sender, RoutedEventArgs e)

@@ -23,6 +23,9 @@ public enum LogSeverity
 /// 日志页（参考 Bettbox 的 logs 页）：内核/应用双来源、级别 + 关键词 + 模块筛选、
 /// 错误/警告计数、单条展开与复制、自动滚动与「N 条新日志」浮标。
 ///
+/// 每条连接日志还带一个「链路」标记（Bettbox 请求页的 chain）：策略组 → 节点，
+/// 由 <c>/connections</c> 按目标地址配对而来，配对不上时退回日志里的出站 tag。
+///
 /// 关键点是**入站节流**：核心日志每秒可能几十条，逐条 Ui.Post + Add 会把 UI 线程压住，
 /// 所以先进待处理队列，由 250ms 的定时器合批落到集合里。
 /// </summary>
@@ -31,10 +34,20 @@ public partial class LogsViewModel : ObservableObject
     private const int MaxLines = 2000;
     private const int FlushIntervalMs = 250;
 
+    /// <summary>活动连接轮询间隔：日志只显示最终出站，「走的哪个策略组」只有 Clash API 的 chains 知道。</summary>
+    private const int RoutePollMs = 2000;
+
+    /// <summary>还没匹配上链路的日志行上限（连接早就结束了的行会一直留在这里，靠上限兜住）。</summary>
+    private const int MaxPendingRoutes = 400;
+
     private readonly List<LogItem> _all = [];
     private readonly List<LogItem> _pending = [];
+    private readonly List<LogItem> _pendingRoutes = [];
     private readonly object _gate = new();
     private DispatcherQueueTimer? _timer;
+    private DispatcherQueueTimer? _routeTimer;
+    private Dictionary<string, ConnectionInfo> _routes = new(StringComparer.OrdinalIgnoreCase);
+    private bool _routeBusy;
     private long _seq;
     private bool _attached;
 
@@ -133,6 +146,7 @@ public partial class LogsViewModel : ObservableObject
         foreach (var item in batch)
         {
             _all.Add(item);
+            if (item.RouteTarget.Length > 0 || item.Outbound.Length > 0) ApplyRoute(item);
             if (!_attached || !Passes(item)) continue;
             Lines.Add(item);
             appended++;
@@ -150,10 +164,91 @@ public partial class LogsViewModel : ObservableObject
         if (_attached) return;
         _attached = true;
         Rebuild();
+        StartRoutePolling();
     }
 
     /// <summary>页面卸载：停止维护展示列表（旧 repeater 可能还挂着集合通知）。</summary>
-    public void Detach() => _attached = false;
+    public void Detach()
+    {
+        _attached = false;
+        _routeTimer?.Stop();
+        _routeTimer = null;
+        _pendingRoutes.Clear();
+    }
+
+    // ==================== 链路（走的是哪个策略组的哪个节点） ====================
+
+    /// <summary>
+    /// sing-box 的日志只写到最终出站（<c>outbound/vless[HK 01]</c>），不知道它属于哪个策略组、
+    /// 命中了哪条规则；这些在 Clash API 的 <c>/connections</c> 的 chains / rule 里。
+    /// 页面开着时每 2 秒取一次活动连接，按目标地址把两者对上。
+    /// </summary>
+    private void StartRoutePolling()
+    {
+        if (_routeTimer is not null) return;
+        var queue = Ui.Queue;
+        if (queue is null) return;
+        _routeTimer = queue.CreateTimer();
+        _routeTimer.Interval = TimeSpan.FromMilliseconds(RoutePollMs);
+        _routeTimer.Tick += async (_, _) => await RefreshRoutesAsync();
+        _routeTimer.Start();
+    }
+
+    private async Task RefreshRoutesAsync()
+    {
+        if (_routeBusy || !_attached) return;
+        if (!AppServices.Runner.IsRunning)
+        {
+            _routes = new Dictionary<string, ConnectionInfo>(StringComparer.OrdinalIgnoreCase);
+            return;
+        }
+
+        _routeBusy = true;
+        try
+        {
+            var map = new Dictionary<string, ConnectionInfo>(StringComparer.OrdinalIgnoreCase);
+            foreach (var conn in await AppServices.Clash.GetConnectionsAsync())
+                foreach (var key in conn.Targets)
+                    map.TryAdd(key, conn); // 同一目标多条连接时留第一条
+            _routes = map;
+
+            for (var i = _pendingRoutes.Count - 1; i >= 0; i--)
+            {
+                var item = _pendingRoutes[i];
+                if (item.HasExactRoute || !_routes.TryGetValue(item.RouteTarget, out var conn)) continue;
+                ApplyExact(item, conn);
+                _pendingRoutes.RemoveAt(i);
+            }
+        }
+        catch
+        {
+            // 核心刚停或 API 还没就绪：保持现状，下一轮再试
+        }
+        finally
+        {
+            _routeBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// 给一条日志定链路：先按目标地址查活动连接（能拿到完整的「策略组 → 节点」和命中规则）；
+    /// 查不到（连接刚开始或已经结束）就退回日志里的那个出站 tag，标成近似链路。
+    /// </summary>
+    private void ApplyRoute(LogItem item)
+    {
+        if (item.RouteTarget.Length > 0 && _routes.TryGetValue(item.RouteTarget, out var conn))
+        {
+            ApplyExact(item, conn);
+            return;
+        }
+
+        if (item.Outbound.Length > 0) item.SetRoute(item.Outbound, "", false);
+        if (item.RouteTarget.Length > 0 && _pendingRoutes.Count < MaxPendingRoutes) _pendingRoutes.Add(item);
+    }
+
+    /// <summary>用活动连接补上精确链路；链路上没有出站（异常载荷）时退回规则文本。</summary>
+    private static void ApplyExact(LogItem item, ConnectionInfo conn) =>
+        item.SetRoute(conn.ChainText.Length > 0 ? conn.ChainText : conn.Rule, conn.Rule, true);
 
     private void TrimToLimit()
     {
@@ -320,6 +415,7 @@ public partial class LogsViewModel : ObservableObject
             _all.Clear();
         }
         if (_attached) Lines.Clear();
+        _pendingRoutes.Clear();
         ClearNew();
         UpdateCounts();
         UpdateStatus();
@@ -342,7 +438,10 @@ public partial class LogsViewModel : ObservableObject
     }
 }
 
-/// <summary>一条日志的展示模型：解析出级别 / 模块 / 正文，并预先算好配色与展开态。</summary>
+/// <summary>
+/// 一条日志的展示模型：解析出级别 / 模块 / 正文 / 出站与目标地址，
+/// 预先算好配色与展开态；链路（策略组 → 节点）由页面在拿到活动连接后补上。
+/// </summary>
 public sealed partial class LogItem : ObservableObject
 {
     private static readonly SolidColorBrush ErrorBrush = new(Windows.UI.Color.FromArgb(0xFF, 0xD9, 0x3A, 0x3F));
@@ -357,6 +456,9 @@ public sealed partial class LogItem : ObservableObject
     private static readonly SolidColorBrush WarningBadgeBrush = new(Windows.UI.Color.FromArgb(0x24, 0xC7, 0x7E, 0x12));
     private static readonly SolidColorBrush NeutralBadgeBrush = new(Windows.UI.Color.FromArgb(0x1A, 0x8A, 0x8A, 0x8A));
 
+    private static readonly SolidColorBrush RouteBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x8B, 0x5C, 0xF6));
+    private static readonly SolidColorBrush RouteBgBrush = new(Windows.UI.Color.FromArgb(0x22, 0x8B, 0x5C, 0xF6));
+
     public DateTimeOffset Time { get; }
     public string Level { get; }
     public string Module { get; }
@@ -365,15 +467,23 @@ public sealed partial class LogItem : ObservableObject
     public long Seq { get; }
     public LogSeverity Severity { get; }
 
-    /// <summary>预先拼好的小写检索串，筛选时避免逐次拼接。</summary>
-    public string SearchText { get; }
+    /// <summary>日志里提到的出站 tag（<c>outbound/vless[HK 01]</c> 的 HK 01），查不到链路时的兜底。</summary>
+    public string Outbound { get; }
+
+    /// <summary>这一行的目标地址（host:port / ip:port），用来匹配活动连接；没有则为空。</summary>
+    public string RouteTarget { get; }
+
+    /// <summary>检索串（含链路与规则，所以搜「HK 01」也能捞出这批连接的全部日志）。</summary>
+    public string SearchText => $"{Level} {Module} {Message} {SourceText} {Route} {Rule}";
 
     public string TimeText => Time.LocalDateTime.ToString("HH:mm:ss");
     public string FullTimeText => Time.LocalDateTime.ToString("yyyy-MM-dd HH:mm:ss.fff");
     public string SourceText => Source == LogSource.App ? "应用" : "内核";
     public string ModuleText => Module.Length > 0 ? Module : SourceText;
     public string MetaText => $"{FullTimeText} · {SourceText} · {Level}"
-        + (Module.Length > 0 ? $" · {Module}" : "");
+        + (Module.Length > 0 ? $" · {Module}" : "")
+        + (Route.Length > 0 ? $" · 链路：{Route}{(HasExactRoute ? "" : "（按日志里的出站）")}" : "")
+        + (Rule.Length > 0 ? $" · 规则：{Rule}" : "");
 
     public bool HasModule => Module.Length > 0;
 
@@ -409,6 +519,31 @@ public sealed partial class LogItem : ObservableObject
     public Brush ModuleBrush => MutedBrush;
     public Brush ModuleBackground => NeutralBadgeBrush;
 
+    /// <summary>这一条连接走的链路：「策略组 → 节点」（来自 Clash API），或退化成日志里的出站 tag。</summary>
+    [ObservableProperty] private string _route = "";
+
+    /// <summary>命中的路由规则（只有匹配到活动连接时才有）。</summary>
+    [ObservableProperty] private string _rule = "";
+
+    /// <summary>链路是否来自活动连接（true），还是只从日志里的出站 tag 推出来的。</summary>
+    public bool HasExactRoute { get; private set; }
+
+    public Visibility RouteVisibility => Route.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+    public string RouteTooltip => HasExactRoute
+        ? Rule.Length > 0 ? $"这条连接的链路：{Route}\n命中规则：{Rule}" : $"这条连接的链路：{Route}"
+        : $"日志里的出站：{Route}（连接已结束，查不到属于哪个策略组）";
+    public Brush RouteForeground => HasExactRoute ? RouteBrush : MutedBrush;
+    public Brush RouteBackground => HasExactRoute ? RouteBgBrush : NeutralBadgeBrush;
+
+    public void SetRoute(string route, string rule, bool exact)
+    {
+        if (exact) HasExactRoute = true;
+        else if (HasExactRoute) return; // 已经有精确链路了，别用日志里的出站把它盖掉
+        if (route.Length == 0 && rule.Length == 0) return;
+        Rule = rule;
+        Route = route;
+    }
+
     [ObservableProperty] private bool _isExpanded;
 
     public TextWrapping MessageWrapping => IsExpanded ? TextWrapping.Wrap : TextWrapping.NoWrap;
@@ -416,7 +551,9 @@ public sealed partial class LogItem : ObservableObject
     public Visibility DetailVisibility => IsExpanded ? Visibility.Visible : Visibility.Collapsed;
     public string ExpandGlyph => IsExpanded ? "\uE70E" : "\uE70D";
 
-    private LogItem(DateTimeOffset time, string level, string module, string message, LogSource source, long seq)
+    private LogItem(
+        DateTimeOffset time, string level, string module, string message, LogSource source, long seq,
+        string outbound, string target)
     {
         Time = time;
         Level = level;
@@ -424,8 +561,9 @@ public sealed partial class LogItem : ObservableObject
         Message = message;
         Source = source;
         Seq = seq;
+        Outbound = outbound;
+        RouteTarget = target;
         Severity = Classify(level);
-        SearchText = $"{level} {module} {message} {source}";
     }
 
     partial void OnIsExpandedChanged(bool value)
@@ -436,7 +574,19 @@ public sealed partial class LogItem : ObservableObject
         OnPropertyChanged(nameof(ExpandGlyph));
     }
 
-    public string ToPlainText() => $"{FullTimeText} {Level,-5} {ModuleText,-10} {Message}";
+    partial void OnRouteChanged(string value)
+    {
+        OnPropertyChanged(nameof(RouteVisibility));
+        OnPropertyChanged(nameof(RouteTooltip));
+        OnPropertyChanged(nameof(RouteForeground));
+        OnPropertyChanged(nameof(RouteBackground));
+        OnPropertyChanged(nameof(MetaText));
+    }
+
+    partial void OnRuleChanged(string value) => OnPropertyChanged(nameof(MetaText));
+
+    public string ToPlainText() => $"{FullTimeText} {Level,-5} {ModuleText,-10} {Message}"
+        + (Route.Length > 0 ? $" [{Route}{(Rule.Length > 0 ? $" / {Rule}" : "")}]" : "");
 
     public static LogItem From(LogEntry entry, long seq)
     {
@@ -444,7 +594,8 @@ public sealed partial class LogItem : ObservableObject
         var level = parsed.Level.Length > 0
             ? parsed.Level
             : (string.IsNullOrWhiteSpace(entry.Level) ? "LOG" : entry.Level.ToUpperInvariant());
-        return new LogItem(entry.Time, level, parsed.Module, parsed.Message, entry.Source, seq);
+        return new LogItem(entry.Time, level, parsed.Module, parsed.Message, entry.Source, seq,
+            parsed.Outbound, parsed.Target);
     }
 
     private static LogSeverity Classify(string level) => level.ToUpperInvariant() switch

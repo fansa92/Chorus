@@ -2,8 +2,12 @@ using System.Text.RegularExpressions;
 
 namespace Chorus.Core.Parsing;
 
-/// <summary>一行日志拆解结果。</summary>
-public readonly record struct ParsedLogLine(string Level, string Module, string Message);
+/// <summary>
+/// 一行日志拆解结果。Outbound 是这一行提到的出站 tag（<c>outbound/vless[HK 01]</c> 里的 <c>HK 01</c>），
+/// Target 是这一行的目标地址（host:port / ip:port），用来和 Clash API 的活动连接对上。
+/// </summary>
+public readonly record struct ParsedLogLine(
+    string Level, string Module, string Message, string Outbound, string Target);
 
 /// <summary>
 /// 解析核心日志行。sing-box 的默认输出形如：
@@ -45,10 +49,24 @@ public static partial class CoreLogParser
     [GeneratedRegex(@"^(?<m>[a-z][a-z0-9_-]*(?:/[a-z0-9_-]+)?)(?:\[[^\]\r\n]{0,64}\])?\s*[:：]\s")]
     private static partial Regex NamedModuleRegex();
 
+    // 出站及其 tag：outbound/vless[HK 01]（既可能出现在模块前缀，也可能出现在正文的 using 后面）
+    [GeneratedRegex(@"outbound/[a-z0-9_-]+\[(?<tag>[^\]\r\n]{1,64})\]")]
+    private static partial Regex OutboundRegex();
+
+    // 目标地址：outbound connection to www.gstatic.com:443 / dial tcp 18.140.198.185:46105
+    [GeneratedRegex(@"(?:connection to|dial (?:tcp|udp))\s+(?<d>(?:\[[0-9A-Fa-f:.]+\]|[^\s,:]+):\d{1,5})")]
+    private static partial Regex TargetRegex();
+
     public static ParsedLogLine Parse(string? raw)
     {
         var original = raw ?? "";
         var text = AnsiRegex().Replace(original, "");
+
+        // 出站 tag 与目标地址在整行里找：模块前缀会被剥掉，正文里的 using 也要照顾到
+        var outbound = OutboundRegex().Match(text) is { Success: true } ob ? ob.Groups["tag"].Value : "";
+        var target = TargetRegex().Match(text) is { Success: true } tg
+            ? tg.Groups["d"].Value.Replace("[", "").Replace("]", "") // IPv6 写作 [::1]:443，与 API 的 ::1:443 对齐
+            : "";
 
         foreach (var prefix in new[] { ZoneRegex(), TimestampRegex() })
         {
@@ -88,6 +106,6 @@ public static partial class CoreLogParser
 
         text = text.TrimEnd();
         if (text.Length == 0) text = original.Trim();
-        return new ParsedLogLine(level, module, text);
+        return new ParsedLogLine(level, module, text, outbound, target);
     }
 }

@@ -164,9 +164,9 @@
                                 <!-- 左侧级别色条 -->
                                 <Border Grid.Column="0" Background="{x:Bind BarBrush}" />
 
-                                <!-- 主行：时间 / 级别 / 模块 / 正文 / 展开 -->
+                                <!-- 主行：时间 / 级别 / 模块 / 正文 / 链路 / 展开 -->
                                 <Grid Grid.Column="1" Padding="10,6,6,6"
-                                      ColumnDefinitions="Auto,Auto,Auto,*,Auto" ColumnSpacing="8">
+                                      ColumnDefinitions="Auto,Auto,Auto,*,Auto,Auto" ColumnSpacing="8">
                                     <TextBlock
                                         Grid.Column="0"
                                         Text="{x:Bind TimeText}"
@@ -201,7 +201,18 @@
                                         MaxLines="{x:Bind MessageMaxLines}"
                                         TextTrimming="CharacterEllipsis" />
 
-                                    <Button Grid.Column="4" Click="Expand_Click" Tag="{x:Bind}"
+                                    <!-- 链路：这条连接走的策略组 → 节点（Bettbox 请求页的 chain） -->
+                                    <Border Grid.Column="4" CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
+                                            MaxWidth="220"
+                                            Background="{x:Bind RouteBackground}"
+                                            Visibility="{x:Bind RouteVisibility}"
+                                            ToolTipService.ToolTip="{x:Bind RouteTooltip}">
+                                        <TextBlock Text="{x:Bind Route}" FontSize="10"
+                                                   Foreground="{x:Bind RouteForeground}"
+                                                   TextTrimming="CharacterEllipsis" />
+                                    </Border>
+
+                                    <Button Grid.Column="5" Click="Expand_Click" Tag="{x:Bind}"
                                             Padding="4" MinWidth="0" Width="22" Height="22"
                                             Background="Transparent" BorderThickness="0" CornerRadius="4"
                                             ToolTipService.ToolTip="展开 / 收起">

@@ -90,9 +90,22 @@ public sealed class ClashApiClient
         if (JsonNode.Parse(json) is JsonObject obj)
         {
             var count = obj["connections"] is JsonArray conns ? conns.Count : 0;
-            return (count, GetLong(obj, "uploadTotal"), GetLong(obj, "downloadTotal"));
+            return (count, ClashApiModels.GetLong(obj, "uploadTotal"), ClashApiModels.GetLong(obj, "downloadTotal"));
         }
         return (0, 0, 0);
+    }
+
+    /// <summary>
+    /// 活动连接明细（含每条连接走的链路：策略组 → 节点，以及命中的路由规则）。
+    /// sing-box 只列**当前还活着**的连接，连接一结束就从这里消失，所以要和日志里的出站 tag 配合兜底。
+    /// </summary>
+    public async Task<List<ConnectionInfo>> GetConnectionsAsync(CancellationToken ct = default)
+    {
+        using var req = CreateRequest(HttpMethod.Get, "/connections");
+        using var resp = await _http.SendAsync(req, ct);
+        resp.EnsureSuccessStatusCode();
+        var json = await resp.Content.ReadAsStringAsync(ct);
+        return ClashApiModels.ParseConnections(json);
     }
 
     /// <summary>断开全部活动连接。</summary>
@@ -138,7 +151,7 @@ public sealed class ClashApiClient
             try
             {
                 if (JsonNode.Parse(message) is JsonObject obj)
-                    sample = new TrafficSample(GetLong(obj, "up"), GetLong(obj, "down"));
+                    sample = new TrafficSample(ClashApiModels.GetLong(obj, "up"), ClashApiModels.GetLong(obj, "down"));
             }
             catch
             {
@@ -173,16 +186,6 @@ public sealed class ClashApiClient
                 return Encoding.UTF8.GetString(ms.ToArray());
         }
     }
-
-    private static long GetLong(JsonObject obj, string property)
-    {
-        if (obj[property] is JsonValue value)
-        {
-            if (value.TryGetValue<long>(out var l)) return l;
-            if (value.TryGetValue<double>(out var d)) return (long)d;
-        }
-        return 0;
-    }
 }
 
 public sealed class ProxyInfo
@@ -195,6 +198,42 @@ public sealed class ProxyInfo
 }
 
 public sealed record TrafficSample(long Up, long Down);
+
+/// <summary>
+/// 一条活动连接。Chain 按 sing-box 返回的顺序是「最终出站 → … → 顶层策略组」，
+/// 显示时要反过来读成「策略组 → 节点」；Rule 是命中的路由规则（没有规则时为 final）。
+/// </summary>
+public sealed class ConnectionInfo
+{
+    public string Host { get; set; } = "";
+    public string DestinationIp { get; set; } = "";
+    public string DestinationPort { get; set; } = "";
+    public string Network { get; set; } = "";
+    public string Inbound { get; set; } = "";
+    public string Process { get; set; } = "";
+    public string Rule { get; set; } = "";
+    public List<string> Chain { get; set; } = [];
+    public long Upload { get; set; }
+    public long Download { get; set; }
+
+    /// <summary>日志里可能写成 host:port，也可能写成 ip:port，两个键都能匹配上这条连接。</summary>
+    public IEnumerable<string> Targets
+    {
+        get
+        {
+            if (Host.Length > 0 && DestinationPort.Length > 0) yield return $"{Host}:{DestinationPort}";
+            if (DestinationIp.Length > 0 && DestinationPort.Length > 0) yield return $"{DestinationIp}:{DestinationPort}";
+        }
+    }
+
+    /// <summary>「策略组 → 节点」；只有一跳时就是那个出站本身（如 DIRECT）。</summary>
+    public string ChainText => Chain.Count switch
+    {
+        0 => "",
+        1 => Chain[0],
+        _ => string.Join(" → ", Chain.AsEnumerable().Reverse()),
+    };
+}
 
 /// <summary>日志来源：核心进程输出 / 应用自身（启动、系统代理、订阅等）。</summary>
 public enum LogSource
@@ -230,5 +269,59 @@ public static class ClashApiModels
             result[name] = info;
         }
         return result;
+    }
+
+    /// <summary>解析 /connections 的返回：sing-box 形如 <c>{"connections":[{metadata:{...},chains:[...],rule:...}]}</c>。</summary>
+    public static List<ConnectionInfo> ParseConnections(string json)
+    {
+        var result = new List<ConnectionInfo>();
+        if (JsonNode.Parse(json) is not JsonObject root || root["connections"] is not JsonArray array)
+            return result;
+
+        foreach (var node in array)
+        {
+            if (node is not JsonObject conn) continue;
+            var meta = conn["metadata"] as JsonObject;
+            var info = new ConnectionInfo
+            {
+                Host = GetText(meta, "host"),
+                DestinationIp = GetText(meta, "destinationIP"),
+                DestinationPort = GetText(meta, "destinationPort"),
+                Network = GetText(meta, "network"),
+                Inbound = GetText(meta, "type"),
+                Process = GetText(meta, "processPath"),
+                Rule = GetText(conn, "rule"),
+                Upload = GetLong(conn, "upload"),
+                Download = GetLong(conn, "download"),
+            };
+            if (conn["chains"] is JsonArray chains)
+                info.Chain = chains
+                    .Select(x => x is JsonValue v && v.TryGetValue<string>(out var s) ? s : "")
+                    .Where(s => s.Length > 0)
+                    .ToList();
+            result.Add(info);
+        }
+        return result;
+    }
+
+    private static string GetText(JsonObject? obj, string property)
+    {
+        if (obj?[property] is not JsonValue value) return "";
+        if (value.TryGetValue<string>(out var s)) return s;
+        // 端口这类字段可能是数字
+        if (value.TryGetValue(out long l)) return l.ToString();
+        if (value.TryGetValue(out int i)) return i.ToString();
+        if (value.TryGetValue(out double d)) return ((long)d).ToString();
+        return "";
+    }
+
+    public static long GetLong(JsonObject obj, string property)
+    {
+        if (obj[property] is JsonValue value)
+        {
+            if (value.TryGetValue<long>(out var l)) return l;
+            if (value.TryGetValue<double>(out var d)) return (long)d;
+        }
+        return 0;
     }
 }

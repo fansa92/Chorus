@@ -115,4 +115,49 @@ public class ClashApiClientTests
 
         Assert.Null(delay);
     }
+
+    /// <summary>载荷形状照 sing-box 的 TrackerMetadata.MarshalJSON（chains 是「最终出站 → … → 顶层组」）。</summary>
+    [Fact]
+    public async Task GetConnectionsAsync_Parses_Chain_Rule_And_Targets()
+    {
+        var handler = new FakeHandler
+        {
+            Responder = _ => JsonResponse("""
+            {"connections":[
+              {"id":"9fc4","metadata":{"network":"tcp","type":"mixed/mixed-in","sourceIP":"127.0.0.1",
+                "destinationIP":"142.250.0.0","sourcePort":"52133","destinationPort":"443",
+                "host":"www.gstatic.com","processPath":"C:\\app.exe"},
+               "upload":12,"download":34,"chains":["HK 01","🚀 节点选择"],
+               "rule":"rule-set( google ) => 🚀 节点选择","rulePayload":""},
+              {"metadata":{"network":"udp","destinationIP":"1.1.1.1","destinationPort":"80","host":""},
+               "chains":["DIRECT"],"rule":"final"}],
+             "uploadTotal":24,"downloadTotal":34}
+            """),
+        };
+        var client = new ClashApiClient(handler);
+
+        var connections = await client.GetConnectionsAsync();
+
+        Assert.Equal(2, connections.Count);
+        var first = connections[0];
+        Assert.Equal("🚀 节点选择 → HK 01", first.ChainText);
+        Assert.Equal("rule-set( google ) => 🚀 节点选择", first.Rule);
+        Assert.Equal(12, first.Upload);
+        Assert.Equal(34, first.Download);
+        Assert.Equal("mixed/mixed-in", first.Inbound);
+        Assert.Equal(["www.gstatic.com:443", "142.250.0.0:443"], first.Targets);
+
+        // 只有一跳（DIRECT）时链路就是它自己；host 为空时只用 IP:端口做键
+        Assert.Equal("DIRECT", connections[1].ChainText);
+        Assert.Equal(["1.1.1.1:80"], connections[1].Targets);
+    }
+
+    [Fact]
+    public async Task GetConnectionsAsync_Empty_Without_Connections_Key()
+    {
+        var handler = new FakeHandler { Responder = _ => JsonResponse("""{"uploadTotal":0}""") };
+        var client = new ClashApiClient(handler);
+
+        Assert.Empty(await client.GetConnectionsAsync());
+    }
 }

@@ -1,6 +1,7 @@
 using System.Collections.Specialized;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Windows.ApplicationModel.DataTransfer;
 using Chorus.App.Services;
@@ -107,11 +108,21 @@ public sealed partial class LogsPage : Page
 
     private void Row_Tapped(object sender, Microsoft.UI.Xaml.Input.TappedRoutedEventArgs e)
     {
+        // 行内按钮（展开 / 复制）的 Tapped 也会冒泡到这一行：不挡掉就会 Click 翻一次、这里再翻一次
+        if (TappedInsideButton(e.OriginalSource)) return;
         if (sender is FrameworkElement { Tag: LogItem item })
         {
             item.IsExpanded = !item.IsExpanded;
             e.Handled = true;
         }
+    }
+
+    private static bool TappedInsideButton(object? source)
+    {
+        for (var node = source as DependencyObject; node is not null; node = VisualTreeHelper.GetParent(node))
+            if (node is ButtonBase)
+                return true;
+        return false;
     }
 
     private void Expand_Click(object sender, RoutedEventArgs e)

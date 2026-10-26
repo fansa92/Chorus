@@ -21,7 +21,7 @@
     <Platform Condition="'$(Platform)' == ''">x64</Platform>
     <!-- 界面底部显示的版本号：发布时 CI 用 git tag 覆盖（-p:Version=x.y.z），
          本地构建就显示这里写的版本。不加 +提交号 后缀，界面上只留干净的三段式版本。 -->
-    <Version>0.1.6</Version>
+    <Version>0.1.7</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 

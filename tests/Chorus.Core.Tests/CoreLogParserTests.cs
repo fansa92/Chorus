@@ -76,4 +76,56 @@ public class CoreLogParserTests
         Assert.Equal("network", parsed.Module);
         Assert.Equal("updated default interface 浙江移动, index 15", parsed.Message);
     }
+
+    [Fact]
+    public void 取出出站与目标地址()
+    {
+        var line = $"+0800 2026-10-25 10:14:34 {Esc}[36mINFO{Esc}[0m outbound/vless[HK 01]: outbound connection to www.gstatic.com:443";
+
+        var parsed = CoreLogParser.Parse(line);
+
+        Assert.Equal("HK 01", parsed.Outbound);
+        Assert.Equal("www.gstatic.com:443", parsed.Target);
+    }
+
+    [Fact]
+    public void 正文里的出站与目标也能取出()
+    {
+        var line = $"+0800 2026-10-25 10:10:35 {Esc}[31mERROR{Esc}[0m [{Esc}[38;5;30m2654300302{Esc}[0m 5.0s] connection: open connection to www.gstatic.com:443 using outbound/vless[JP]: dial tcp 18.140.198.185:46105: i/o timeout";
+
+        var parsed = CoreLogParser.Parse(line);
+
+        Assert.Equal("JP", parsed.Outbound);
+        // 认的是这条连接的目标（域名），不是报错里最后那个 IP
+        Assert.Equal("www.gstatic.com:443", parsed.Target);
+    }
+
+    [Fact]
+    public void 入站行认不出出站与目标()
+    {
+        var line = $"+0800 2026-10-25 10:14:37 {Esc}[36mINFO{Esc}[0m [{Esc}[38;5;30m2177483534{Esc}[0m 0ms] inbound/mixed[mixed-in]: inbound connection from 127.0.0.1:52133";
+
+        var parsed = CoreLogParser.Parse(line);
+
+        Assert.Equal("", parsed.Outbound);
+        Assert.Equal("", parsed.Target);
+    }
+
+    [Fact]
+    public void 没有地址的日志两项为空()
+    {
+        var parsed = CoreLogParser.Parse($"{Esc}[36mINFO{Esc}[0m dns: resolve example.com");
+
+        Assert.Equal("", parsed.Outbound);
+        Assert.Equal("", parsed.Target);
+    }
+
+    [Fact]
+    public void IPv6_目标去掉方括号()
+    {
+        var parsed = CoreLogParser.Parse("INFO outbound/trojan[本地]: outbound connection to [::1]:20050");
+
+        Assert.Equal("本地", parsed.Outbound);
+        Assert.Equal("::1:20050", parsed.Target);
+    }
 }
