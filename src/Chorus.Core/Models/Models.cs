@@ -100,6 +100,13 @@ public sealed class AppSettings
     /// </summary>
     public string SubscriptionUserAgent { get; set; } = "sing-box";
 
+    /// <summary>
+    /// 更新订阅时只走直连、不经核心代理。
+    /// 默认关闭（有代理时优先经核心，订阅站在墙外也能更新）；订阅站可直连、
+    /// 或者当前配置的代理走不通时打开它，更新就不再依赖正在运行的配置。
+    /// </summary>
+    public bool SubscriptionDirectUpdate { get; set; }
+
     public List<SubscriptionEntry> Subscriptions { get; set; } = [];
     public Profile Profile { get; set; } = new();
 

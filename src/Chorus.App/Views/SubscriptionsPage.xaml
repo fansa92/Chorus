@@ -13,6 +13,10 @@
         <Grid ColumnDefinitions="*,Auto">
             <TextBlock Text="订阅" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
             <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <!-- 订阅站可直连（或当前配置的代理走不通）时，更新不依赖核心代理 -->
+                <CheckBox Content="直连更新" VerticalAlignment="Center"
+                          IsChecked="{x:Bind Vm.DirectUpdate, Mode=TwoWay}"
+                          ToolTipService.ToolTip="{x:Bind Vm.DirectUpdateHint}" />
                 <Button Content="添加订阅" Click="Add_Click" Style="{StaticResource AccentButtonStyle}" />
                 <Button Click="UpdateAll_Click" IsEnabled="{x:Bind Vm.CanUpdateAll, Mode=OneWay}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
@@ -51,55 +55,56 @@
                     HorizontalAlignment="Center" />
         </StackPanel>
 
-        <!-- 订阅卡片列表（布局参考 Bettbox 的配置列表：一张卡片说清状态，操作就地完成） -->
-        <ListView Grid.Row="2"
-                  ItemsSource="{x:Bind Vm.Items, Mode=OneWay}"
-                  SelectionMode="None"
-                  MaxWidth="980"
-                  HorizontalAlignment="Left"
-                  Padding="0,0,0,20"
-                  Visibility="{x:Bind Vm.ListVisibility, Mode=OneWay}">
-            <ListView.ItemContainerStyle>
-                <Style TargetType="ListViewItem">
-                    <Setter Property="Padding" Value="0" />
-                    <Setter Property="Margin" Value="0,0,0,8" />
-                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-                </Style>
-            </ListView.ItemContainerStyle>
-            <ListView.ItemTemplate>
-                <DataTemplate x:DataType="vm:SubscriptionItemViewModel">
-                    <Border
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        BorderBrush="{x:Bind CardStroke, Mode=OneWay}"
-                        BorderThickness="{x:Bind CardStrokeThickness, Mode=OneWay}"
-                        CornerRadius="10"
-                        Padding="14,12"
-                        Tag="{x:Bind}"
-                        Tapped="Card_Tapped"
-                        ToolTipService.ToolTip="{x:Bind ActiveTooltip, Mode=OneWay}">
-                        <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="12">
-                            <!-- 首字母图标（选中时用强调色，和「使用中」徽标一起表明当前生效的是这份） -->
-                            <Border Width="40" Height="40" CornerRadius="10"
-                                    VerticalAlignment="Center"
-                                    Background="{ThemeResource SubtleFillColorSecondaryBrush}">
-                                <TextBlock Text="{x:Bind IconLetter}"
-                                           HorizontalAlignment="Center" VerticalAlignment="Center"
-                                           FontSize="17" FontWeight="SemiBold" />
-                            </Border>
+        <!-- 订阅卡片阵列（布局参考 Bettbox 的配置页：卡片按可用宽度自适应多列，
+             状态与操作都在卡片内完成） -->
+        <ScrollViewer Grid.Row="2" Padding="0,0,0,20" VerticalScrollBarVisibility="Auto"
+                      Visibility="{x:Bind Vm.ListVisibility, Mode=OneWay}">
+            <ItemsRepeater ItemsSource="{x:Bind Vm.Items, Mode=OneWay}">
+                <ItemsRepeater.Layout>
+                    <UniformGridLayout
+                        MinItemWidth="380"
+                        MinItemHeight="200"
+                        MinColumnSpacing="12"
+                        MinRowSpacing="12"
+                        ItemsStretch="Fill" />
+                </ItemsRepeater.Layout>
+                <ItemsRepeater.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SubscriptionItemViewModel">
+                        <Border
+                            Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                            BorderBrush="{x:Bind CardStroke, Mode=OneWay}"
+                            BorderThickness="{x:Bind CardStrokeThickness, Mode=OneWay}"
+                            CornerRadius="10"
+                            Padding="14,12"
+                            Tag="{x:Bind}"
+                            Tapped="Card_Tapped"
+                            ToolTipService.ToolTip="{x:Bind ActiveTooltip, Mode=OneWay}">
+                            <Grid RowSpacing="8">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
 
-                            <!-- 名称 / 主机 / 状态 -->
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold"
-                                               TextTrimming="CharacterEllipsis" MaxWidth="300"
-                                               VerticalAlignment="Center" />
-                                    <Border CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
-                                            Background="{x:Bind BadgeBackground}"
-                                            BorderBrush="{x:Bind BadgeBrush}" BorderThickness="1">
-                                        <TextBlock Text="{x:Bind BadgeText}" FontSize="10"
-                                                   Foreground="{x:Bind BadgeBrush}" />
+                                <!-- 首字母图标 + 名称/主机 + 使用中徽标 -->
+                                <Grid ColumnDefinitions="Auto,*,Auto" ColumnSpacing="10">
+                                    <Border Width="38" Height="38" CornerRadius="10" VerticalAlignment="Top"
+                                            Background="{ThemeResource SubtleFillColorSecondaryBrush}">
+                                        <TextBlock Text="{x:Bind IconLetter}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                   FontSize="16" FontWeight="SemiBold" />
                                     </Border>
-                                    <Border CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
+                                    <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                                        <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold"
+                                                   TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Text="{x:Bind Host}" FontSize="12" Opacity="0.6"
+                                                   FontFamily="Cascadia Mono, Consolas"
+                                                   TextTrimming="CharacterEllipsis"
+                                                   ToolTipService.ToolTip="{x:Bind Url}" />
+                                    </StackPanel>
+                                    <Border Grid.Column="2" CornerRadius="4" Padding="6,1"
+                                            VerticalAlignment="Top"
                                             Background="#220067C0"
                                             BorderBrush="{ThemeResource AccentFillColorDefaultBrush}"
                                             BorderThickness="1"
@@ -107,59 +112,69 @@
                                         <TextBlock Text="使用中" FontSize="10"
                                                    Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" />
                                     </Border>
-                                </StackPanel>
-                                <TextBlock Text="{x:Bind Host}" FontSize="12" Opacity="0.6"
-                                           FontFamily="Cascadia Mono, Consolas"
-                                           TextTrimming="CharacterEllipsis"
-                                           ToolTipService.ToolTip="{x:Bind Url}" />
-                                <TextBlock Text="{x:Bind DisplayStatus}" FontSize="12" Opacity="0.72"
-                                           TextTrimming="CharacterEllipsis" />
-                                <TextBlock Text="{x:Bind ErrorText}" FontSize="11"
-                                           Foreground="#D13438" TextWrapping="Wrap"
-                                           Visibility="{x:Bind ErrorVisibility}" />
-                                <!-- 配置检查结论：更新/添加时自动跑一遍 sing-box check，也可手动复查 -->
-                                <TextBlock Text="{x:Bind CheckText}" FontSize="11"
-                                           Foreground="{x:Bind CheckBrush}"
-                                           TextWrapping="Wrap" MaxLines="3"
-                                           TextTrimming="CharacterEllipsis"
-                                           Visibility="{x:Bind CheckVisibility}" />
-                            </StackPanel>
+                                </Grid>
 
-                            <!-- 操作区：更新 / 编辑 / 删除（更新中换成进度环） -->
-                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="6"
-                                        VerticalAlignment="Center">
-                                <ProgressRing Width="18" Height="18" IsActive="True"
-                                              Visibility="{x:Bind BusyVisibility}" />
-                                <Button Content="更新" Padding="10,4" FontSize="12"
-                                        Tag="{x:Bind}" Click="UpdateItem_Click"
-                                        IsEnabled="{x:Bind ButtonsEnabled}"
-                                        Visibility="{x:Bind UpdateButtonVisibility}" />
-                                <Button Padding="8,4" FontSize="12"
-                                        Tag="{x:Bind}" Click="CheckItem_Click"
-                                        AutomationProperties.Name="检查配置"
-                                        IsEnabled="{x:Bind ButtonsEnabled}"
-                                        ToolTipService.ToolTip="检查配置是否可用（sing-box check 静态校验，不启动核心）">
-                                    <FontIcon Glyph="&#xE73E;" FontSize="12" />
-                                </Button>
-                                <Button Padding="8,4" FontSize="12"
-                                        Tag="{x:Bind}" Click="EditItem_Click"
-                                        AutomationProperties.Name="编辑订阅"
-                                        IsEnabled="{x:Bind ButtonsEnabled}"
-                                        ToolTipService.ToolTip="编辑名称或链接">
-                                    <FontIcon Glyph="&#xE70F;" FontSize="12" />
-                                </Button>
-                                <Button Padding="8,4" FontSize="12"
-                                        Tag="{x:Bind}" Click="RemoveItem_Click"
-                                        AutomationProperties.Name="删除订阅"
-                                        IsEnabled="{x:Bind ButtonsEnabled}"
-                                        ToolTipService.ToolTip="删除订阅">
-                                    <FontIcon Glyph="&#xE74D;" FontSize="12" />
-                                </Button>
-                            </StackPanel>
-                        </Grid>
-                    </Border>
-                </DataTemplate>
-            </ListView.ItemTemplate>
-        </ListView>
+                                <!-- 状态徽标 + 更新时间/规模 -->
+                                <Grid Grid.Row="1" ColumnDefinitions="Auto,*" ColumnSpacing="6">
+                                    <Border CornerRadius="4" Padding="6,1" VerticalAlignment="Center"
+                                            Background="{x:Bind BadgeBackground}"
+                                            BorderBrush="{x:Bind BadgeBrush}" BorderThickness="1">
+                                        <TextBlock Text="{x:Bind BadgeText}" FontSize="10"
+                                                   Foreground="{x:Bind BadgeBrush}" />
+                                    </Border>
+                                    <TextBlock Grid.Column="1" Text="{x:Bind DisplayStatus}" FontSize="12"
+                                               Opacity="0.72" TextTrimming="CharacterEllipsis"
+                                               VerticalAlignment="Center" />
+                                </Grid>
+
+                                <!-- 失败原因与配置检查结论（按需显示） -->
+                                <StackPanel Grid.Row="2" Spacing="3">
+                                    <TextBlock Text="{x:Bind ErrorText}" FontSize="11"
+                                               Foreground="#D13438" TextWrapping="Wrap"
+                                               MaxLines="2" TextTrimming="CharacterEllipsis"
+                                               Visibility="{x:Bind ErrorVisibility}" />
+                                    <TextBlock Text="{x:Bind CheckText}" FontSize="11"
+                                               Foreground="{x:Bind CheckBrush}" TextWrapping="Wrap"
+                                               MaxLines="2" TextTrimming="CharacterEllipsis"
+                                               Visibility="{x:Bind CheckVisibility}" />
+                                </StackPanel>
+
+                                <!-- 操作区：更新 / 检查 / 编辑 / 删除（更新中换成进度环） -->
+                                <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="6"
+                                            HorizontalAlignment="Right" VerticalAlignment="Bottom">
+                                    <ProgressRing Width="18" Height="18" IsActive="True"
+                                                  Visibility="{x:Bind BusyVisibility}" />
+                                    <Button Content="更新" Padding="10,4" FontSize="12"
+                                            Tag="{x:Bind}" Click="UpdateItem_Click"
+                                            IsEnabled="{x:Bind ButtonsEnabled}"
+                                            Visibility="{x:Bind UpdateButtonVisibility}" />
+                                    <Button Padding="8,4" FontSize="12"
+                                            Tag="{x:Bind}" Click="CheckItem_Click"
+                                            AutomationProperties.Name="检查配置"
+                                            IsEnabled="{x:Bind ButtonsEnabled}"
+                                            ToolTipService.ToolTip="检查配置是否可用（sing-box check 静态校验，不启动核心）">
+                                        <FontIcon Glyph="&#xE73E;" FontSize="12" />
+                                    </Button>
+                                    <Button Padding="8,4" FontSize="12"
+                                            Tag="{x:Bind}" Click="EditItem_Click"
+                                            AutomationProperties.Name="编辑订阅"
+                                            IsEnabled="{x:Bind ButtonsEnabled}"
+                                            ToolTipService.ToolTip="编辑名称或链接">
+                                        <FontIcon Glyph="&#xE70F;" FontSize="12" />
+                                    </Button>
+                                    <Button Padding="8,4" FontSize="12"
+                                            Tag="{x:Bind}" Click="RemoveItem_Click"
+                                            AutomationProperties.Name="删除订阅"
+                                            IsEnabled="{x:Bind ButtonsEnabled}"
+                                            ToolTipService.ToolTip="删除订阅">
+                                        <FontIcon Glyph="&#xE74D;" FontSize="12" />
+                                    </Button>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsRepeater.ItemTemplate>
+            </ItemsRepeater>
+        </ScrollViewer>
     </Grid>
 </Page>

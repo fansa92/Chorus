@@ -406,15 +406,19 @@ public partial class ProxiesViewModel : ObservableObject
                 // 不单独展示为标签页——它在 Clash API 里会自己冒出来。
                 if (info.Name.StartsWith(ConfigGenerator.AutoInnerPrefix, StringComparison.Ordinal)) continue;
 
+                // 自动组：外层 selector 选中的是内层 urltest 组名，真正的节点在内层组的 now 里
+                var innerTag = ConfigGenerator.AutoInnerPrefix + info.Name;
+                var isAutoGroup = info.Type.Equals("Selector", StringComparison.OrdinalIgnoreCase)
+                                  && info.All.Contains(innerTag, StringComparer.Ordinal);
+                var autoNow = isAutoGroup && proxies.TryGetValue(innerTag, out var inner)
+                    ? inner.Now ?? ""
+                    : "";
+
                 var gvm = new ProxyGroupViewModel(info.Name, info.Type)
                 {
                     SelectedName = info.Now ?? "",
                 };
-                // 自动组：内核选中的是内层组名，对外显示成「由内核自动选择」
-                var innerTag = ConfigGenerator.AutoInnerPrefix + info.Name;
-                var isAutoGroup = info.Type.Equals("Selector", StringComparison.OrdinalIgnoreCase)
-                                  && info.All.Contains(innerTag, StringComparer.Ordinal);
-                gvm.SetAutoInfo(isAutoGroup, innerTag);
+                gvm.SetAutoInfo(isAutoGroup, innerTag, autoNow);
 
                 var members = info.All.Select(name =>
                 {
@@ -451,6 +455,40 @@ public partial class ProxiesViewModel : ObservableObject
         return true;
     }
 
+    /// <summary>
+    /// 轻量刷新：只同步自动组里「内核当前挑中的节点」，不重建列表、不动测速结果。
+    /// 内层 urltest 每个测速间隔都会重新选节点，页面开着时定时调用保持显示最新。
+    /// </summary>
+    public async Task RefreshAutoSelectionAsync()
+    {
+        if (_refreshing || _allGroups.Count == 0 || !AppServices.Runner.IsRunning) return;
+
+        Dictionary<string, ProxyInfo> proxies;
+        try
+        {
+            proxies = await AppServices.Clash.GetProxiesAsync();
+        }
+        catch
+        {
+            return; // 核心刚停或 API 还没就绪：保持现状，下次再试
+        }
+
+        Ui.Post(() =>
+        {
+            var changed = false;
+            foreach (var group in _allGroups)
+            {
+                if (!group.IsAutoGroup) continue;
+                if (!proxies.TryGetValue(group.AutoInnerTag, out var inner)) continue;
+                var now = inner.Now ?? "";
+                if (now == group.AutoNow) continue;
+                group.AutoNow = now;
+                changed = true;
+            }
+            if (changed) PersistSnapshot();
+        });
+    }
+
     /// <summary>核心未运行时：把上次成功读取的策略组快照铺回页面（只读）。</summary>
     private void RestoreSnapshot()
     {
@@ -471,7 +509,12 @@ public partial class ProxiesViewModel : ObservableObject
         _allGroups.Clear();
         foreach (var group in snapshot.Groups)
         {
+            // 旧快照没有 IsAuto/AutoNow：选中项是「◈ 自动·xxx」就说明这是自动组
+            var innerTag = ConfigGenerator.AutoInnerPrefix + group.Name;
+            var isAuto = group.IsAuto
+                         || group.Now.StartsWith(ConfigGenerator.AutoInnerPrefix, StringComparison.Ordinal);
             var gvm = new ProxyGroupViewModel(group.Name, group.Type) { SelectedName = group.Now };
+            gvm.SetAutoInfo(isAuto, innerTag, isAuto ? group.AutoNow : "");
             var members = group.Members.Select(m => new ProxyMemberViewModel(gvm, m.Name)
             {
                 ProtocolType = m.Type,
@@ -505,6 +548,8 @@ public partial class ProxiesViewModel : ObservableObject
                 Name = group.Name,
                 Type = group.RawType,
                 Now = group.SelectedName,
+                IsAuto = group.IsAutoGroup,
+                AutoNow = group.AutoNow,
                 Members = group.AllMembers.Select(member => new ProxySnapshotMember
                 {
                     Name = member.Name,
@@ -709,7 +754,15 @@ public partial class ProxyGroupViewModel : ObservableObject
 
     public string Name { get; }
     public string RawType { get; }
-    public string TypeText { get; }
+    public string TypeText => IsAutoGroup
+        ? "自动测速"
+        : RawType switch
+        {
+            "Selector" or "selector" => "手动选择",
+            "URLTest" or "urltest" => "自动测速",
+            "Fallback" or "fallback" => "故障转移",
+            _ => RawType,
+        };
 
     /// <summary>是否支持手动切换节点。sing-box 的 Clash API 仅对 Selector 组开放
     /// PUT /proxies/{name}；URLTest/Fallback 组会返回 400，伪造的 GLOBAL 项返回 404。</summary>
@@ -724,19 +777,34 @@ public partial class ProxyGroupViewModel : ObservableObject
     /// <summary>内层自动组的 tag（点「交还内核自动选择」时选的就是它）。</summary>
     public string AutoInnerTag { get; private set; } = "";
 
+    /// <summary>
+    /// 内层 urltest 当前实际挑中的节点（内核自动选择的结果）。
+    /// 空串 = 内核还没测完或刚启动，暂时未知。
+    /// </summary>
+    [ObservableProperty] private string _autoNow = "";
+
+    partial void OnAutoNowChanged(string value)
+    {
+        OnPropertyChanged(nameof(SubtitleText));
+        UpdateAutoChosen();
+    }
+
     /// <summary>设置自动组信息（从核心读到的组才知道自己是不是自动组）。</summary>
-    public void SetAutoInfo(bool isAutoGroup, string autoInnerTag)
+    public void SetAutoInfo(bool isAutoGroup, string autoInnerTag, string autoNow = "")
     {
         IsAutoGroup = isAutoGroup;
         AutoInnerTag = autoInnerTag;
+        AutoNow = autoNow;
         OnPropertyChanged(nameof(IsAutoGroup));
         OnPropertyChanged(nameof(AutoInnerTag));
         OnPropertyChanged(nameof(IsAutoSelected));
         OnPropertyChanged(nameof(AutoResetVisibility));
+        OnPropertyChanged(nameof(TypeText));
         OnPropertyChanged(nameof(TypeBadgeText));
         OnPropertyChanged(nameof(TypeBadgeBrush));
         OnPropertyChanged(nameof(TypeBadgeBackground));
         OnPropertyChanged(nameof(SubtitleText));
+        UpdateAutoChosen();
     }
 
     /// <summary>
@@ -781,9 +849,11 @@ public partial class ProxyGroupViewModel : ObservableObject
         get
         {
             if (SelectedName.Length == 0) return TypeText;
-            // 自动组选中的是内层 urltest 的 tag，对用户显示成「由内核自动选择」
+            // 自动组选中的是内层 urltest 的 tag：实际用的是内核挑中的那个节点
             if (IsAutoGroup && string.Equals(SelectedName, AutoInnerTag, StringComparison.Ordinal))
-                return $"{TypeText} · 由内核自动选择";
+                return AutoNow.Length > 0
+                    ? $"{TypeText} · 由内核自动选择（当前：{AutoNow}）"
+                    : $"{TypeText} · 由内核自动选择";
             return $"{TypeText} · {SelectedName}";
         }
     }
@@ -803,19 +873,10 @@ public partial class ProxyGroupViewModel : ObservableObject
         OnPropertyChanged(nameof(MemberCountLabel));
     }
 
-    public ProxyGroupViewModel(string name, string type, bool isAutoGroup = false, string autoInnerTag = "")
+    public ProxyGroupViewModel(string name, string type)
     {
         Name = name;
         RawType = type;
-        IsAutoGroup = isAutoGroup;
-        AutoInnerTag = autoInnerTag;
-        TypeText = type switch
-        {
-            "Selector" or "selector" => "手动选择",
-            "URLTest" or "urltest" => "自动测速",
-            "Fallback" or "fallback" => "故障转移",
-            _ => type,
-        };
     }
 
     public void SetMembers(IEnumerable<ProxyMemberViewModel> members)
@@ -824,7 +885,19 @@ public partial class ProxyGroupViewModel : ObservableObject
         // 内层自动组（◈ 自动·xxx）是包装层的里层，不作为节点展示给用户——
         // 它由「交还内核自动选择」按钮代替。
         _source.AddRange(members.Where(m => !string.Equals(m.Name, AutoInnerTag, StringComparison.Ordinal)));
+        UpdateAutoChosen();
         UpdateFilter("");
+    }
+
+    /// <summary>
+    /// 把「内核自动挑中的节点」标到对应卡片上。只在自动模式且结果已知时生效；
+    /// 用户手动钉住节点后由 <see cref="ProxyMemberViewModel.IsSelected"/> 表示选中，两者互斥。
+    /// </summary>
+    private void UpdateAutoChosen()
+    {
+        var active = IsAutoGroup && IsAutoSelected && AutoNow.Length > 0;
+        foreach (var member in _source)
+            member.IsAutoChosen = active && string.Equals(member.Name, AutoNow, StringComparison.Ordinal);
     }
 
     public void UpdateFilter(string search)
@@ -862,6 +935,8 @@ public partial class ProxyGroupViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(SubtitleText));
         OnPropertyChanged(nameof(AutoResetVisibility));
+        OnPropertyChanged(nameof(IsAutoSelected));
+        UpdateAutoChosen();
     }
 }
 
@@ -870,6 +945,9 @@ public partial class ProxyMemberViewModel : ObservableObject
     private static readonly SolidColorBrush TransparentBrush = new(Windows.UI.Color.FromArgb(0, 0, 0, 0));
     private static readonly SolidColorBrush SelectedBgBrush = new(Windows.UI.Color.FromArgb(0x26, 0x3E, 0x8F, 0xE0));
     private static readonly SolidColorBrush SelectedBorderBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3E, 0x8F, 0xE0));
+    // 自动组里由内核挑中的节点用紫色，和用户手动钉住的蓝色区分开
+    private static readonly SolidColorBrush AutoChosenBorderBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x8B, 0x5C, 0xF6));
+    private static readonly SolidColorBrush AutoChosenBgBrush = new(Windows.UI.Color.FromArgb(0x26, 0x8B, 0x5C, 0xF6));
     private static readonly SolidColorBrush AccentBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3E, 0x8F, 0xE0));
     private static readonly SolidColorBrush GreenBrush = new(Windows.UI.Color.FromArgb(0xFF, 0x3B, 0xA5, 0x5D));
     private static readonly SolidColorBrush OrangeBrush = new(Windows.UI.Color.FromArgb(0xFF, 0xD1, 0x8A, 0x2B));
@@ -890,14 +968,21 @@ public partial class ProxyMemberViewModel : ObservableObject
 
     [ObservableProperty] private bool _isSelected;
 
+    /// <summary>自动测速组里，内核当前挑中的节点（不是用户手动钉住的）。</summary>
+    [ObservableProperty] private bool _isAutoChosen;
+
     /// <summary>最近一次测速延迟（毫秒）；null = 未测速，-1 = 失败/超时。</summary>
     [ObservableProperty] private int? _delayMs;
 
-    public Visibility SelectedVisibility => IsSelected ? Visibility.Visible : Visibility.Collapsed;
-    public Brush CheckBrush => AccentBrush;
-    public Brush CardBackground => IsSelected ? SelectedBgBrush : ThemeBrushes.CardFill;
-    public Brush CardBorderBrush => IsSelected ? SelectedBorderBrush : ThemeBrushes.CardStroke;
-    public Thickness CardBorderThickness => new(IsSelected ? 1.5 : 1);
+    public Visibility SelectedVisibility => IsSelected || IsAutoChosen ? Visibility.Visible : Visibility.Collapsed;
+    public Brush CheckBrush => IsAutoChosen ? AutoChosenBorderBrush : AccentBrush;
+    public Brush CardBackground => IsSelected ? SelectedBgBrush
+        : IsAutoChosen ? AutoChosenBgBrush
+        : ThemeBrushes.CardFill;
+    public Brush CardBorderBrush => IsSelected ? SelectedBorderBrush
+        : IsAutoChosen ? AutoChosenBorderBrush
+        : ThemeBrushes.CardStroke;
+    public Thickness CardBorderThickness => new(IsSelected || IsAutoChosen ? 1.5 : 1);
 
     public string DelayBadgeText => DelayMs switch
     {
@@ -924,6 +1009,16 @@ public partial class ProxyMemberViewModel : ObservableObject
     partial void OnIsSelectedChanged(bool value)
     {
         OnPropertyChanged(nameof(SelectedVisibility));
+        OnPropertyChanged(nameof(CheckBrush));
+        OnPropertyChanged(nameof(CardBackground));
+        OnPropertyChanged(nameof(CardBorderBrush));
+        OnPropertyChanged(nameof(CardBorderThickness));
+    }
+
+    partial void OnIsAutoChosenChanged(bool value)
+    {
+        OnPropertyChanged(nameof(SelectedVisibility));
+        OnPropertyChanged(nameof(CheckBrush));
         OnPropertyChanged(nameof(CardBackground));
         OnPropertyChanged(nameof(CardBorderBrush));
         OnPropertyChanged(nameof(CardBorderThickness));

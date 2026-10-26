@@ -12,20 +12,33 @@ public sealed partial class ProxiesPage : Page
 {
     public ProxiesViewModel Vm { get; } = AppServices.ProxiesVm;
 
+    /// <summary>
+    /// 自动组由内核持续测速换节点，页面开着时定时同步「当前挑中的节点」，
+    /// 否则显示会停留在进页面那一刻。
+    /// </summary>
+    private readonly DispatcherTimer _autoRefreshTimer = new() { Interval = TimeSpan.FromSeconds(15) };
+    private bool _loadedOnce;
+
     public ProxiesPage()
     {
         InitializeComponent();
         // 刷新放到 Loaded 之后：ViewModel 是单例，若在 OnNavigatedTo 里重建列表，
         // 上一个页面实例还没卸载的 ItemsRepeater 可能仍在监听集合，容易抛 E_UNEXPECTED。
         Loaded += OnLoaded;
+        Unloaded += OnUnloaded;
+        _autoRefreshTimer.Tick += async (_, _) => await Vm.RefreshAutoSelectionAsync();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        Loaded -= OnLoaded;
+        _autoRefreshTimer.Start();
+        if (_loadedOnce) return;
+        _loadedOnce = true;
         // 核心在跑就读实时数据；没在跑时 RefreshAsync 会铺上次的快照（不再是空白页）
         _ = Vm.RefreshAsync();
     }
+
+    private void OnUnloaded(object sender, RoutedEventArgs e) => _autoRefreshTimer.Stop();
 
     private void Refresh_Click(object sender, RoutedEventArgs e)
     {

@@ -30,17 +30,22 @@ public sealed class SubscriptionService
 
     /// <summary>
     /// 返回核心运行时的本机代理端点（host, port）；核心未运行时可返回 null。
-    /// 订阅地址通常在墙外，直连必然超时，必须借核心的 mixed 端口出去。
+    /// 订阅地址通常在墙外，有代理时默认借核心的 mixed 端口出去。
     /// </summary>
     public Func<(string Host, int Port)?>? ProxyProvider { get; set; }
+
+    /// <summary>
+    /// 为 true 时订阅请求只走直连、完全不碰核心代理（订阅页的「直连更新」）。
+    /// </summary>
+    public bool DirectOnly { get; set; }
 
     /// <summary>最近一次拉取走的是哪条路（代理 / 直连用了哪个 IP），用于在界面上给出可见的依据。</summary>
     public string? LastFetchDetail { get; private set; }
 
-    /// <summary>下载订阅原始内容。优先经核心代理；直连时先做多 DNS 解析 + IP 竞速。</summary>
+    /// <summary>下载订阅原始内容。默认优先经核心代理；直连时先做多 DNS 解析 + IP 竞速。</summary>
     public async Task<string> FetchAsync(string url, CancellationToken ct = default)
     {
-        var endpoint = ProxyProvider?.Invoke();
+        var endpoint = DirectOnly ? null : ProxyProvider?.Invoke();
         Exception? proxyFailure = null;
         LastFetchDetail = null;
 
@@ -109,9 +114,11 @@ public sealed class SubscriptionService
         }
         catch (Exception directFailure)
         {
+            var hint = DirectOnly
+                ? "当前开着「直连更新」，需要代理时请关闭它后重试。"
+                : "该订阅若需要代理访问，请先启动核心再更新。";
             var detail = proxyFailure is null
-                ? $"直连失败（多 DNS 解析：{raceNote}；{Describe(directFailure)}）。"
-                  + "该订阅若需要代理访问，请先启动核心再更新。"
+                ? $"直连失败（多 DNS 解析：{raceNote}；{Describe(directFailure)}）。{hint}"
                 : $"经核心代理（{endpoint!.Value.Host}:{endpoint.Value.Port}）失败：{Describe(proxyFailure)}；"
                   + $"直连失败（多 DNS 解析：{raceNote}；{Describe(directFailure)}）。";
             throw new InvalidOperationException("拉取订阅失败：" + detail, directFailure);

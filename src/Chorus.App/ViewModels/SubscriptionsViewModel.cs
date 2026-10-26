@@ -34,13 +34,30 @@ public partial class SubscriptionsViewModel : ObservableObject
     /// <summary>正在更新的订阅个数（用于顶部「全部更新」按钮的进度与禁用）。</summary>
     [ObservableProperty] private int _updatingCount;
 
+    /// <summary>
+    /// 更新订阅时只走直连、不经核心代理。
+    /// 打开后下载不依赖正在运行的配置，订阅站可直连时也更稳。
+    /// </summary>
+    [ObservableProperty] private bool _directUpdate;
+
+    public string DirectUpdateHint => "开启后订阅请求只走直连，不再经核心代理（不依赖当前运行的配置）。";
+
     /// <summary>提示条几秒后自己收掉（Bettbox 的 toast 也是这个行为）。</summary>
     private readonly AutoHide _messageHide;
 
     public SubscriptionsViewModel()
     {
+        _directUpdate = AppServices.Settings.SubscriptionDirectUpdate;
         _messageHide = new AutoHide(ClearMessage);
         Reload();
+    }
+
+    partial void OnDirectUpdateChanged(bool value)
+    {
+        if (AppServices.Settings.SubscriptionDirectUpdate == value) return;
+        AppServices.Settings.SubscriptionDirectUpdate = value;
+        AppServices.Subscriptions.DirectOnly = value;
+        AppServices.Store.Save(AppServices.Settings);
     }
 
     // ---------- 顶部摘要 ----------
@@ -59,8 +76,8 @@ public partial class SubscriptionsViewModel : ObservableObject
 
     /// <summary>只有订阅多于一份时，「点击卡片切换」才有意义。</summary>
     public string ActiveHintText => Items.Count > 1
-        ? "点卡片中间的空白处即可切换到该配置（同一时刻只有一份配置生效，手动节点始终参与）。"
-        : "同一时刻只有一份配置生效：点卡片右侧「更新」刷新，点卡片可把它设为当前使用的配置。";
+        ? "点卡片空白处切换当前配置；右侧「更新」只刷新内容，不会切换配置。"
+        : "同一时刻只有一份配置生效：点右侧「更新」刷新，点卡片可把它设为当前使用的配置。";
 
     public Visibility EmptyVisibility => Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ListVisibility => Items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -182,16 +199,21 @@ public partial class SubscriptionsViewModel : ObservableObject
         IsBusy = true;
         try
         {
+            // 添加订阅不切换「当前使用的配置」：用户往往只是先存着，
+            // 要切过去点卡片即可。只有还没有任何配置时才把它设为当前。
+            var active = AppServices.Settings.ActiveSubscription();
+            var firstConfig = active is null;
             var (ok, message) = await UpdateEntryAsync(entry);
-            // 刚添加的订阅直接设为当前使用的配置（Bettbox 添加配置后也是立刻切过去）
-            AppServices.Settings.ActiveSubscriptionUrl = entry.Url;
+            if (firstConfig && ok) AppServices.Settings.ActiveSubscriptionUrl = entry.Url;
             AppServices.Store.Save(AppServices.Settings);
             NewName = "";
             NewUrl = "";
-            var (applyOk, note) = ok ? await ApplyAsync() : (true, "");
+            var (applyOk, note) = !ok ? (true, "")
+                : firstConfig ? await ApplyAsync()
+                : (true, $"当前使用的仍是「{active!.Name}」，点卡片可切换到新订阅。");
             Show(
                 ok ? "添加成功" : "添加成功但更新失败",
-                ok ? $"「{entry.Name}」已添加并设为当前使用的配置，解析到 {entry.Nodes.Count} 个节点、{entry.Groups.Count} 个策略组。{Join(message, note)}"
+                ok ? $"「{entry.Name}」已添加，解析到 {entry.Nodes.Count} 个节点、{entry.Groups.Count} 个策略组。{Join(message, note)}"
                    : $"「{entry.Name}」已添加，但更新失败：{message}",
                 ok ? (applyOk ? InfoBarSeverity.Success : InfoBarSeverity.Warning) : InfoBarSeverity.Warning);
         }

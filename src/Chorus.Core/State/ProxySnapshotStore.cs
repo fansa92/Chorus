@@ -21,6 +21,10 @@ public sealed class ProxySnapshotGroup
     public string Name { get; set; } = "";
     public string Type { get; set; } = "";
     public string Now { get; set; } = "";
+    /// <summary>是否是「自动测速」包装组（外层 selector + 内层 urltest）。</summary>
+    public bool IsAuto { get; set; }
+    /// <summary>自动模式下内核实际挑中的节点（内层 urltest 的 now）。</summary>
+    public string AutoNow { get; set; } = "";
     public List<ProxySnapshotMember> Members { get; set; } = [];
 }
 

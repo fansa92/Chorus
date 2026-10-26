@@ -52,6 +52,47 @@ public sealed class ProxySnapshotStoreTests : IDisposable
     }
 
     [Fact]
+    public void Auto_Group_Fields_RoundTrip()
+    {
+        var store = Store();
+        store.Save(new ProxySnapshot
+        {
+            Groups =
+            [
+                new ProxySnapshotGroup
+                {
+                    Name = "♻️ 自动选择",
+                    Type = "Selector",
+                    Now = "◈ 自动·♻️ 自动选择",
+                    IsAuto = true,
+                    AutoNow = "JP-1",
+                    Members = [new ProxySnapshotMember { Name = "JP-1", Type = "VLESS" }],
+                },
+            ],
+        });
+
+        var group = Assert.Single(store.Load()!.Groups);
+
+        Assert.True(group.IsAuto);
+        Assert.Equal("JP-1", group.AutoNow);
+    }
+
+    [Fact]
+    public void Old_Snapshot_Without_Auto_Fields_Loads_With_Defaults()
+    {
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(Store().FilePath, """
+            {"SavedAt":"2026-10-25T15:30:00+08:00","Source":"x","ProxyCount":1,
+             "Groups":[{"Name":"🚀 节点选择","Type":"Selector","Now":"JP-1","Members":[]}]}
+            """);
+
+        var group = Assert.Single(Store().Load()!.Groups);
+
+        Assert.False(group.IsAuto);
+        Assert.Equal("", group.AutoNow);
+    }
+
+    [Fact]
     public void Empty_Snapshot_Is_Not_Written()
     {
         var store = Store();

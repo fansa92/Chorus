@@ -61,8 +61,10 @@ public static class AppServices
         Core = new SingBoxCoreManager();
         Runner = new AppRunner();
 
-        // 订阅地址基本都在墙外：核心在运行时经 mixed 端口拉取，未运行时才直连
+        // 订阅地址基本都在墙外：核心在运行时经 mixed 端口拉取，未运行时才直连；
+        // 订阅页可勾「直连更新」强制绕过代理（不依赖当前运行的配置）
         Subscriptions.UserAgent = Settings.SubscriptionUserAgent;
+        Subscriptions.DirectOnly = Settings.SubscriptionDirectUpdate;
         Subscriptions.ProxyProvider = () =>
             Runner.IsRunning && Settings.MixedPort > 0
                 ? ("127.0.0.1", Settings.MixedPort)
