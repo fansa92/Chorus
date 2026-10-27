@@ -52,10 +52,20 @@ jobs:
           "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           Write-Output "本次发布的版本号：$version（写入界面「设置」页底部）"
 
-      - name: 发布应用 (win-x64)
+      # ---------- 通道一：自包含（内置 .NET 运行时，解压即用） ----------
+      - name: 发布应用 · 自包含 (win-x64)
         run: dotnet publish src/Chorus.App/Chorus.App.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -p:Version=${{ env.APP_VERSION }} --no-restore -o publish
 
-      - name: 下载 sing-box 核心进包
+      # ---------- 通道二：框架依赖（.NET 运行时由系统提供，Windows App SDK 仍自带） ----------
+      # 注意：SelfContained=false 与 WindowsAppSDKSelfContained=true 是两个独立开关。
+      # 后者保持 true，用户就只需要装 .NET 10 运行时，不必再单独装 Windows App Runtime。
+      - name: 还原依赖 · 框架依赖版
+        run: dotnet restore src/Chorus.App/Chorus.App.csproj -r win-x64 -p:SelfContained=false -p:WindowsAppSDKSelfContained=true
+
+      - name: 发布应用 · 框架依赖 (win-x64)
+        run: dotnet publish src/Chorus.App/Chorus.App.csproj -c Release -r win-x64 --self-contained false -p:WindowsAppSDKSelfContained=true -p:Platform=x64 -p:Version=${{ env.APP_VERSION }} --no-restore -o publish-fd
+
+      - name: 下载 sing-box 核心进包（两个包都放）
         shell: pwsh
         run: |
           $rel = Invoke-RestMethod "https://api.github.com/repos/SagerNet/sing-box/releases/latest"
@@ -63,44 +73,87 @@ jobs:
           if (-not $asset) { throw "未找到 sing-box windows-amd64 资产" }
           Invoke-WebRequest $asset.browser_download_url -OutFile sb.zip
           Expand-Archive sb.zip -DestinationPath sb
-          New-Item -ItemType Directory -Force -Path publish/core | Out-Null
-          Copy-Item sb/*/sing-box.exe publish/core/
+          foreach ($dir in @('publish', 'publish-fd')) {
+            New-Item -ItemType Directory -Force -Path "$dir/core" | Out-Null
+            Copy-Item sb/*/sing-box.exe "$dir/core/"
+          }
           Write-Output "已打包核心: $($asset.name)"
 
-      - name: 校验发布包（无用户配置、无缓存、无 bin/obj 中间产物、内置核心）
+      - name: 校验发布包（无用户配置、无缓存、无 bin/obj、内置核心、运行时形态正确）
         shell: pwsh
         run: |
-          $files = Get-ChildItem publish -Recurse -File
+          function Test-Package {
+            param([string]$Dir, [bool]$ExpectBundledRuntime)
 
-          # 用户自己的 settings.json（里面有订阅链接）与核心缓存绝不能进包
-          $banned = $files | Where-Object {
-              $_.Name -in @('settings.json', 'config.json', 'crash.log', 'cache.db') -or
-              $_.Extension -in @('.db', '.log')
+            if (-not (Test-Path $Dir)) { throw "发布目录不存在：$Dir" }
+            $files = Get-ChildItem $Dir -Recurse -File
+
+            # 用户自己的 settings.json（里面有订阅链接）与核心缓存绝不能进包
+            $banned = $files | Where-Object {
+                $_.Name -in @('settings.json', 'config.json', 'crash.log', 'cache.db') -or
+                $_.Extension -in @('.db', '.log')
+            }
+            if ($banned) { throw "[$Dir] 出现了用户配置或缓存：`n$($banned.FullName -join "`n")" }
+
+            # 只允许 .NET 自带的几个 json
+            $unexpected = $files | Where-Object {
+                $_.Name -like '*.json' -and
+                $_.Name -notlike '*.deps.json' -and
+                $_.Name -notlike '*.runtimeconfig.json' -and
+                $_.Name -notlike 'workloads*.json'
+            }
+            if ($unexpected) { throw "[$Dir] 出现了非预期的 json：`n$($unexpected.FullName -join "`n")" }
+
+            # 编译/测试中间产物目录（bin/obj）绝不能进包
+            $junk = Get-ChildItem $Dir -Recurse -Directory | Where-Object { $_.Name -in @('bin', 'obj') }
+            if ($junk) { throw "[$Dir] 出现了 bin/obj 中间产物：`n$($junk.FullName -join "`n")" }
+
+            if (-not (Test-Path (Join-Path $Dir 'core/sing-box.exe'))) { throw "[$Dir] 缺少 core/sing-box.exe" }
+
+            # 运行时形态校验：自包含包必须有 coreclr.dll，框架依赖包必须没有
+            $hasRuntime = Test-Path (Join-Path $Dir 'coreclr.dll')
+            if ($ExpectBundledRuntime -and -not $hasRuntime) {
+                throw "[$Dir] 自包含包缺少 .NET 运行时（coreclr.dll），--self-contained true 未生效"
+            }
+            if (-not $ExpectBundledRuntime -and $hasRuntime) {
+                throw "[$Dir] 框架依赖包不该包含 coreclr.dll，--self-contained false 未生效"
+            }
+
+            # Windows App SDK 自带开关必须为 true：两个包都应带引导/运行时 DLL
+            if (-not (Test-Path (Join-Path $Dir 'Microsoft.WindowsAppRuntime.Bootstrap.dll'))) {
+                throw "[$Dir] 缺少 Microsoft.WindowsAppRuntime.Bootstrap.dll（WindowsAppSDKSelfContained 未生效）"
+            }
+
+            $sizeMb = [math]::Round((($files | Measure-Object Length -Sum).Sum / 1MB), 1)
+            Write-Output "[$Dir] 校验通过：$($files.Count) 个文件，$sizeMb MB，运行时形态符合预期"
           }
-          if ($banned) { throw "发布包里出现了用户配置或缓存：`n$($banned.FullName -join "`n")" }
 
-          # 只允许 .NET 自带的几个 json
-          $unexpected = $files | Where-Object {
-              $_.Name -like '*.json' -and
-              $_.Name -notlike '*.deps.json' -and
-              $_.Name -notlike '*.runtimeconfig.json' -and
-              $_.Name -notlike 'workloads*.json'
-          }
-          if ($unexpected) { throw "发布包里出现了非预期的 json：`n$($unexpected.FullName -join "`n")" }
+          Test-Package -Dir 'publish' -ExpectBundledRuntime $true
+          Test-Package -Dir 'publish-fd' -ExpectBundledRuntime $false
 
-          # 编译/测试中间产物目录（bin/obj）绝不能进包
-          $junk = Get-ChildItem publish -Recurse -Directory | Where-Object { $_.Name -in @('bin', 'obj') }
-          if ($junk) { throw "发布包里出现了 bin/obj 中间产物：`n$($junk.FullName -join "`n")" }
-
-          if (-not (Test-Path publish/core/sing-box.exe)) { throw "发布包缺少 core/sing-box.exe" }
-          Write-Output "发布包校验通过：无用户配置、无缓存、无 bin/obj、核心已内置"
-
-      - name: 打包 zip
+      - name: 打包 zip（自包含 + 框架依赖）
         shell: pwsh
-        run: Compress-Archive -Path publish/* -DestinationPath Chorus-win-x64.zip -Force
+        run: |
+          Compress-Archive -Path publish/* -DestinationPath Chorus-win-x64.zip -Force
+          Compress-Archive -Path publish-fd/* -DestinationPath Chorus-win-x64-framework-dependent.zip -Force
+          Get-ChildItem *.zip | ForEach-Object {
+            Write-Output ("{0}  {1} MB" -f $_.Name, [math]::Round($_.Length / 1MB, 1))
+          }
 
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: Chorus-win-x64.zip
+          files: |
+            Chorus-win-x64.zip
+            Chorus-win-x64-framework-dependent.zip
+          body: |
+            ## 下载哪个包？
+
+            | 发布包 | 需要先装什么 | 体积 |
+            | --- | --- | --- |
+            | `Chorus-win-x64.zip`（**自包含**） | 什么都不用装，解压即用 | 约 220 MB |
+            | `Chorus-win-x64-framework-dependent.zip`（**框架依赖**） | [.NET 10 运行时（桌面运行时 · x64）](https://dotnet.microsoft.com/download/dotnet/10.0) | 约 140 MB |
+
+            两个包功能完全一致，都已内置 sing-box 核心（`core/sing-box.exe`），解压后直接运行 `Chorus.App.exe`。
+            框架依赖包体积更小，但要求机器上已安装 .NET 10 运行时；Windows App SDK 运行时已随包内置，无需另外安装。
           generate_release_notes: true

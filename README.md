@@ -117,7 +117,7 @@ DNS 服务器与 DNS 规则：
 | MVVM | CommunityToolkit.Mvvm 8.4 |
 | 托盘 | H.NotifyIcon.WinUI |
 | 核心 | sing-box ≥ 1.12（CI 打包最新稳定版，位于 `core\sing-box.exe`） |
-| 测试 | xUnit（165 个用例，`Chorus.Core` 跨平台可跑） |
+| 测试 | xUnit（181 个用例，`Chorus.Core` 跨平台可跑） |
 
 ## 目录结构
 
@@ -149,21 +149,35 @@ Chorus/
    ```bash
    dotnet test tests/Chorus.Core.Tests/Chorus.Core.Tests.csproj -c Release
    ```
-3. **推送**，GitHub Actions 自动完成单元测试 + `dotnet publish`（win-x64 自包含）并在 Artifact 中给出 `Chorus-win-x64.zip`。
+3. **推送**，GitHub Actions 自动完成单元测试 + `dotnet publish`（win-x64），同时产出**自包含**与**框架依赖**两个包：
+   `Chorus-win-x64.zip`（内置 .NET 运行时，解压即用）与 `Chorus-win-x64-framework-dependent.zip`（体积小，需先装 .NET 10 运行时）。
 4. **本地出包**（可选，需要 Windows + .NET 10 SDK）：
    ```bash
+   # 自包含（内置 .NET 运行时）
+   dotnet restore src/Chorus.App/Chorus.App.csproj -r win-x64
    dotnet publish src/Chorus.App/Chorus.App.csproj -c Release -r win-x64 \
-     --self-contained true -p:PublishSingleFile=false -p:Platform=x64 -o dist/app
-   # publish 不会带上核心，记得把 sing-box.exe 放到 dist/app/core/
+     --self-contained true -p:PublishSingleFile=false -p:Platform=x64 --no-restore -o dist/app
+
+   # 框架依赖（.NET 运行时由系统提供；Windows App SDK 仍随包内置）
+   dotnet restore src/Chorus.App/Chorus.App.csproj -r win-x64 \
+     -p:SelfContained=false -p:WindowsAppSDKSelfContained=true
+   dotnet publish src/Chorus.App/Chorus.App.csproj -c Release -r win-x64 \
+     --self-contained false -p:WindowsAppSDKSelfContained=true -p:Platform=x64 --no-restore -o dist/app-fd
+   # publish 不会带上核心，记得把 sing-box.exe 放到 dist/app/core/ 与 dist/app-fd/core/
    ```
+   > `SelfContained` 与 `WindowsAppSDKSelfContained` 是两个独立开关：前者控制 .NET 运行时是否打进包，后者控制 Windows App SDK 运行时是否打进包。只把前者设成 `false`，用户就只需要装 .NET 10 运行时，不必再单独装 Windows App Runtime。
 5. **发版**：推 tag 触发 Release 工作流：
    ```bash
-   git tag v0.1.3 && git push origin v0.1.3
+   git tag v0.1.8 && git push origin v0.1.8
    ```
 
 ## 用户使用说明
 
-1. 从 [Releases](https://github.com/fansa92/Chorus/releases) 下载并解压 `Chorus-win-x64.zip`（**已内置官方 sing-box 核心**，位于 `core\sing-box.exe`，构建时自动打包最新稳定版）。
+1. 从 [Releases](https://github.com/fansa92/Chorus/releases) 下载并解压（**都已内置官方 sing-box 核心**，位于 `core\sing-box.exe`，构建时自动打包最新稳定版），按需选一个：
+   - `Chorus-win-x64.zip` —— **自包含**，什么都不用装，解压即用（约 220 MB）
+   - `Chorus-win-x64-framework-dependent.zip` —— **框架依赖**，体积更小（约 140 MB），但需要先装 [.NET 10 运行时（桌面运行时 · x64）](https://dotnet.microsoft.com/download/dotnet/10.0)
+
+   两个包功能完全一致，Windows App SDK 运行时都已随包内置，不用另外安装。
 2. 启动应用 → 侧边栏「订阅」页添加订阅链接（支持多个，点卡片可切换当前使用的配置）→ 仪表盘打开开关。
 3. **首次运行是干净的**：安装包里不带任何订阅链接，`系统代理` / `TUN` / `允许局域网` 全部默认关闭，代理只在你手动打开开关后才生效。
 4. 也可以在设置页手动粘贴分享链接补充节点；手动节点会附加到当前选中的订阅上。
