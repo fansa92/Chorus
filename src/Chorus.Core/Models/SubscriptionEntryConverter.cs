@@ -48,6 +48,12 @@ public sealed class SubscriptionEntryConverter : JsonConverter<SubscriptionEntry
                 {
                     entry.LastUpdated = updated;
                 }
+                if (TryGetProperty(root, "lastUpdateAttempt", out var attemptElement)
+                    && attemptElement.ValueKind == JsonValueKind.String
+                    && DateTimeOffset.TryParse(attemptElement.GetString(), out var attempt))
+                {
+                    entry.LastUpdateAttempt = attempt;
+                }
                 // 订阅自带的 route/dns 片段同样必须读回：漏掉就会在存盘后丢失，
                 // 规则页与生成配置都会退回「只有内置两条模式规则」
                 entry.RouteJson = GetString(root, "routeJson");
@@ -64,6 +70,11 @@ public sealed class SubscriptionEntryConverter : JsonConverter<SubscriptionEntry
                     && DateTimeOffset.TryParse(checkedElement.GetString(), out var checkedAt))
                 {
                     entry.LastCheckedAt = checkedAt;
+                }
+                if (TryGetProperty(root, "usage", out var usageElement)
+                    && usageElement.ValueKind == JsonValueKind.Object)
+                {
+                    entry.Usage = ReadUsage(usageElement);
                 }
                 if (string.IsNullOrWhiteSpace(entry.Name) && entry.Url.Length > 0)
                     entry.Name = DefaultName(entry.Url);
@@ -92,6 +103,8 @@ public sealed class SubscriptionEntryConverter : JsonConverter<SubscriptionEntry
         }
         if (value.LastUpdated is { } updated)
             writer.WriteString("lastUpdated", updated);
+        if (value.LastUpdateAttempt is { } attempt)
+            writer.WriteString("lastUpdateAttempt", attempt);
         if (value.RouteJson is { Length: > 0 } routeJson)
             writer.WriteString("routeJson", routeJson);
         if (value.DnsJson is { Length: > 0 } dnsJson)
@@ -106,6 +119,20 @@ public sealed class SubscriptionEntryConverter : JsonConverter<SubscriptionEntry
             writer.WriteString("lastCheckSummary", checkSummary);
         if (value.LastCheckedAt is { } checkedAt)
             writer.WriteString("lastCheckedAt", checkedAt);
+        if (value.Usage is { } usage && usage.HasAny)
+        {
+            writer.WriteStartObject("usage");
+            if (usage.Upload is { } upload)
+                writer.WriteNumber("upload", upload);
+            if (usage.Download is { } download)
+                writer.WriteNumber("download", download);
+            if (usage.Total is { } total)
+                writer.WriteNumber("total", total);
+            if (usage.ExpiresAt is { } expires)
+                writer.WriteString("expiresAt", expires);
+            writer.WriteString("fetchedAt", usage.FetchedAt);
+            writer.WriteEndObject();
+        }
         writer.WriteEndObject();
     }
 
@@ -116,6 +143,30 @@ public sealed class SubscriptionEntryConverter : JsonConverter<SubscriptionEntry
             return uri.Host;
         return "未命名订阅";
     }
+
+    private static SubscriptionUsage? ReadUsage(JsonElement element)
+    {
+        var usage = new SubscriptionUsage
+        {
+            Upload = GetNumber(element, "upload"),
+            Download = GetNumber(element, "download"),
+            Total = GetNumber(element, "total"),
+            ExpiresAt = GetTime(element, "expiresAt"),
+            FetchedAt = GetTime(element, "fetchedAt") ?? DateTimeOffset.Now,
+        };
+        return usage.HasAny ? usage : null;
+    }
+
+    private static long? GetNumber(JsonElement element, string name) =>
+        TryGetProperty(element, name, out var value) && value.ValueKind == JsonValueKind.Number
+            && value.TryGetInt64(out var number)
+            ? number
+            : null;
+
+    private static DateTimeOffset? GetTime(JsonElement element, string name) =>
+        GetString(element, name) is { } text && DateTimeOffset.TryParse(text, out var value)
+            ? value
+            : null;
 
     private static bool TryGetProperty(JsonElement element, string name, out JsonElement value)
     {

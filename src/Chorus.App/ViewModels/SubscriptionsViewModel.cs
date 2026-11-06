@@ -1,4 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
+using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
@@ -42,13 +43,114 @@ public partial class SubscriptionsViewModel : ObservableObject
 
     public string DirectUpdateHint => "开启后订阅请求只走直连，不再经核心代理（不依赖当前运行的配置）。";
 
+    [ObservableProperty] private bool _autoUpdate;
+    [ObservableProperty] private int _autoUpdateIntervalIndex;
+    [ObservableProperty] private string _autoUpdateStatus = "本次启动尚未执行自动更新，历史更新结果见订阅卡片。";
+    private DispatcherQueueTimer? _autoUpdateTimer;
+    private CancellationTokenSource? _autoUpdateCancellation;
+
+    public string AutoUpdateScheduleText
+    {
+        get
+        {
+            if (!AutoUpdate) return "自动更新已关闭";
+            var entries = AppServices.Settings.Subscriptions;
+            if (entries.Count == 0) return "添加订阅后将按周期自动更新";
+            var now = DateTimeOffset.Now;
+            var next = entries.Min(s => SubscriptionUpdateSchedule.NextAttemptAt(
+                s, AppServices.Settings.SubscriptionUpdateIntervalHours, now));
+            return next <= now ? "已有订阅到期，将在空闲时自动更新"
+                : $"下次更新到期：{next.LocalDateTime:MM-dd HH:mm}（每分钟检查，空闲时更新）";
+        }
+    }
+
+    public void StartAutomaticUpdates()
+    {
+        if (_autoUpdateTimer is not null) return;
+        _autoUpdateTimer = Ui.Queue!.CreateTimer();
+        _autoUpdateTimer.Interval = TimeSpan.FromMinutes(1);
+        _autoUpdateTimer.Tick += AutoUpdateTimer_Tick;
+        _autoUpdateTimer.Start();
+        _ = UpdateDueAsync();
+    }
+
+    public void StopAutomaticUpdates()
+    {
+        if (_autoUpdateTimer is not null)
+        {
+            _autoUpdateTimer.Stop();
+            _autoUpdateTimer.Tick -= AutoUpdateTimer_Tick;
+            _autoUpdateTimer = null;
+        }
+        _autoUpdateCancellation?.Cancel();
+    }
+
+    private async void AutoUpdateTimer_Tick(DispatcherQueueTimer sender, object args)
+    {
+        // 每分钟过一次：即使这一轮没有订阅到期，「还有 N 天到期」也要跟着当天时间走
+        RaiseUsageAlert();
+        await UpdateDueAsync();
+    }
+
+    partial void OnAutoUpdateChanged(bool value)
+    {
+        AppServices.Settings.SubscriptionAutoUpdate = value;
+        AppServices.Store.Save(AppServices.Settings);
+        if (!value) _autoUpdateCancellation?.Cancel();
+        OnPropertyChanged(nameof(AutoUpdateScheduleText));
+        if (value && _autoUpdateTimer is not null) _ = UpdateDueAsync();
+    }
+
+    partial void OnAutoUpdateIntervalIndexChanged(int value)
+    {
+        if (value < 0 || value >= SubscriptionUpdateSchedule.Intervals.Count) return;
+        AppServices.Settings.SubscriptionUpdateIntervalHours = SubscriptionUpdateSchedule.Intervals[value];
+        AppServices.Store.Save(AppServices.Settings);
+        OnPropertyChanged(nameof(AutoUpdateScheduleText));
+    }
+
+    private async Task UpdateDueAsync()
+    {
+        if (IsBusy || !AutoUpdate) return;
+        using var cancellation = new CancellationTokenSource();
+        _autoUpdateCancellation = cancellation;
+        try
+        {
+            OnPropertyChanged(nameof(AutoUpdateScheduleText));
+            var now = DateTimeOffset.Now;
+            var items = AppServices.Settings.Subscriptions
+                .Where(s => SubscriptionUpdateSchedule.IsDue(AppServices.Settings, s, now))
+                .Select(s => Items.FirstOrDefault(i => ReferenceEquals(i.Entry, s))
+                    ?? new SubscriptionItemViewModel(s, IsActive(s)))
+                .ToList();
+            if (items.Count > 0) await UpdateItemsAsync(items, true, cancellation.Token);
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            AutoUpdateStatus = "自动更新已取消；已完成的更新已保存，正在使用的配置未被自动重启。";
+        }
+        catch (Exception)
+        {
+            AutoUpdateStatus = "自动更新未完成，请检查配置目录是否可写或手动重试。";
+        }
+        finally
+        {
+            _autoUpdateCancellation = null;
+            OnPropertyChanged(nameof(AutoUpdateScheduleText));
+        }
+    }
+
     /// <summary>提示条几秒后自己收掉（Bettbox 的 toast 也是这个行为）。</summary>
     private readonly AutoHide _messageHide;
 
     public SubscriptionsViewModel()
     {
         _directUpdate = AppServices.Settings.SubscriptionDirectUpdate;
+        _autoUpdate = AppServices.Settings.SubscriptionAutoUpdate;
+        _autoUpdateIntervalIndex = SubscriptionUpdateSchedule.Intervals.ToList().IndexOf(
+            SubscriptionUpdateSchedule.NormalizeInterval(AppServices.Settings.SubscriptionUpdateIntervalHours));
         _messageHide = new AutoHide(ClearMessage);
+        _usageAlertHide = new AutoHide(HideUsageAlert);
         Reload();
     }
 
@@ -79,11 +181,81 @@ public partial class SubscriptionsViewModel : ObservableObject
         ? "点卡片空白处切换当前配置；右侧「更新」只刷新内容，不会切换配置。"
         : "同一时刻只有一份配置生效：点右侧「更新」刷新，点卡片可把它设为当前使用的配置。";
 
+    /// <summary>
+    /// 到期/流量提醒：只在真的有问题时才出现，几秒后自己收掉——
+    /// 长期挂在页顶的红字没人会读，但更新完那一下看到就够了（细节一直在订阅卡片上）。
+    /// </summary>
+    public string UsageAlertText
+    {
+        get
+        {
+            var now = DateTimeOffset.Now;
+            var lines = new List<string>();
+            foreach (var entry in AppServices.Settings.Subscriptions)
+            {
+                if (entry.Usage?.AlertText(now) is { Length: > 0 } alert)
+                    lines.Add($"「{entry.Name}」{alert}");
+            }
+            return lines.Count == 0 ? "" : "用量提醒：" + string.Join("；", lines);
+        }
+    }
+
+    /// <summary>提醒条当前是否显示（<see cref="RaiseUsageAlert"/> 负责弹出与收起）。</summary>
+    [ObservableProperty] private Visibility _usageAlertVisibility = Visibility.Collapsed;
+
+    /// <summary>最近一次已经弹给用户看过的提醒文案：同样的内容不重复打扰。</summary>
+    private string _usageAlertSeen = "";
+
+    private readonly AutoHide _usageAlertHide;
+
+    /// <summary>有任何一份订阅已经到期/用完时整条提醒转红，否则保持橙色。</summary>
+    public Brush UsageAlertBrush => AppServices.Settings.Subscriptions.Any(s =>
+        s.Usage?.Level(DateTimeOffset.Now) == SubscriptionUsageLevel.Critical)
+        ? AlertBrush
+        : NoticeBrush;
+
+    private static readonly SolidColorBrush NoticeBrush = new(Windows.UI.Color.FromArgb(0xFF, 0xD1, 0x8A, 0x2B));
+    private static readonly SolidColorBrush AlertBrush = new(Windows.UI.Color.FromArgb(0xFF, 0xD1, 0x34, 0x38));
+
+    /// <summary>
+    /// 有新提醒就弹一次并起倒计时；文案没变则维持现状（可能正在显示，也可能已经收起来了）。
+    /// </summary>
+    private void RaiseUsageAlert()
+    {
+        OnPropertyChanged(nameof(UsageAlertText));
+        OnPropertyChanged(nameof(UsageAlertBrush));
+        var text = UsageAlertText;
+        if (text.Length == 0)
+        {
+            _usageAlertHide.Cancel();
+            _usageAlertSeen = "";
+            UsageAlertVisibility = Visibility.Collapsed;
+            return;
+        }
+        if (text == _usageAlertSeen) return;
+        _usageAlertSeen = text;
+        UsageAlertVisibility = Visibility.Visible;
+        _usageAlertHide.Schedule(AutoHide.WarnDelay);
+    }
+
+    private void HideUsageAlert() => UsageAlertVisibility = Visibility.Collapsed;
+
+    /// <summary>
+    /// 进入订阅页时调用：启动那会儿用户还在仪表盘，那条提醒不该算「已经看过」，
+    /// 所以每次进页面都重新弹一次，同样几秒后自己收掉。
+    /// </summary>
+    public void ShowUsageAlert()
+    {
+        _usageAlertSeen = "";
+        RaiseUsageAlert();
+    }
+
     public Visibility EmptyVisibility => Items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility ListVisibility => Items.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
-    public string UpdateAllText => IsBusy ? "更新中…" : "全部更新";
+    public string UpdateAllText => IsBusy ? "处理中…" : "全部更新";
     public bool CanUpdateAll => !IsBusy && Items.Count > 0;
+    public bool CanEditSubscriptions => !IsBusy;
 
     /// <summary>顶部按钮里的进度环是否可见。</summary>
     public Visibility BusyVisibility => IsBusy ? Visibility.Visible : Visibility.Collapsed;
@@ -92,6 +264,7 @@ public partial class SubscriptionsViewModel : ObservableObject
     {
         OnPropertyChanged(nameof(UpdateAllText));
         OnPropertyChanged(nameof(CanUpdateAll));
+        OnPropertyChanged(nameof(CanEditSubscriptions));
         OnPropertyChanged(nameof(BusyVisibility));
     }
 
@@ -115,6 +288,8 @@ public partial class SubscriptionsViewModel : ObservableObject
     {
         Ui.Post(() =>
         {
+            if (IsBusy) return;
+            OnPropertyChanged(nameof(AutoUpdateScheduleText));
             // 切换/删除订阅后保证「当前使用」仍指向存在的条目
             AppServices.Settings.EnsureActiveSubscription();
 
@@ -129,6 +304,7 @@ public partial class SubscriptionsViewModel : ObservableObject
             OnPropertyChanged(nameof(ListVisibility));
             OnPropertyChanged(nameof(SummaryText));
             OnPropertyChanged(nameof(ActiveHintText));
+            RaiseUsageAlert();
             UpdateAllButtonState();
         });
     }
@@ -274,8 +450,8 @@ public partial class SubscriptionsViewModel : ObservableObject
 
     public async Task UpdateAsync(SubscriptionItemViewModel item)
     {
-        // 同一个订阅不并发更新（Bettbox 里也是靠 _updatingProfileIds 去重）
-        if (item.IsUpdating) return;
+        if (IsBusy || item.IsUpdating || !AppServices.Settings.Subscriptions.Contains(item.Entry)) return;
+        IsBusy = true;
         item.IsUpdating = true;
         UpdatingCount++;
         try
@@ -303,17 +479,20 @@ public partial class SubscriptionsViewModel : ObservableObject
         {
             item.IsUpdating = false;
             UpdatingCount--;
+            IsBusy = false;
             Reload();
         }
     }
 
-    public async Task UpdateAllAsync()
+    public Task UpdateAllAsync() => UpdateItemsAsync(Items.ToList(), false);
+
+    private async Task UpdateItemsAsync(IReadOnlyList<SubscriptionItemViewModel> items, bool automatic,
+        CancellationToken ct = default)
     {
         if (IsBusy) return;
-        var items = Items.ToList();
         if (items.Count == 0)
         {
-            Show("提示", "还没有添加任何订阅", InfoBarSeverity.Informational);
+            if (!automatic) Show("提示", "还没有添加任何订阅", InfoBarSeverity.Informational);
             return;
         }
 
@@ -325,21 +504,23 @@ public partial class SubscriptionsViewModel : ObservableObject
             var failures = new List<string>();
             foreach (var item in items)
             {
+                ct.ThrowIfCancellationRequested();
                 item.IsUpdating = true;
                 UpdatingCount++;
+                if (automatic) AutoUpdateStatus = $"正在自动更新 {okCount + failures.Count + 1}/{items.Count}…";
                 try
                 {
-                    var (ok, message) = await UpdateEntryAsync(item.Entry);
+                    var (ok, message) = await UpdateEntryAsync(item.Entry, ct);
                     if (ok)
                     {
                         okCount++;
-                        // 只有「当前使用」的那份变化才需要重启核心
-                        if (item.IsActive) activeUpdated = true;
+                        if (AppServices.Settings.EffectiveSubscriptions().Contains(item.Entry)) activeUpdated = true;
                     }
                     else
                     {
                         failures.Add($"{item.Entry.Name}：{message}");
                     }
+                    AppServices.Store.Save(AppServices.Settings);
                 }
                 finally
                 {
@@ -347,26 +528,32 @@ public partial class SubscriptionsViewModel : ObservableObject
                     UpdatingCount--;
                 }
             }
-            AppServices.Store.Save(AppServices.Settings);
+
+            if (automatic)
+            {
+                var note = activeUpdated && AppServices.Runner.IsRunning
+                    ? "新配置已保存，手动重启核心后生效（未中断当前连接）。"
+                    : "已保存的配置将在下次启动核心时生效。";
+                AutoUpdateStatus = $"{DateTime.Now:MM-dd HH:mm} 自动更新：成功 {okCount}，失败 {failures.Count}。"
+                    + (okCount > 0 ? note : "已保留原配置。")
+                    + (failures.Count > 0 ? "失败原因见订阅卡片，将在所选周期后重试。" : "");
+                return;
+            }
+
+            var (applyOk, applyNote) = activeUpdated ? await ApplyAsync() : (true, "");
             if (failures.Count > 0)
             {
-                // 全军覆没时别叫「部分更新失败」，直接把原因说清楚
-                var title = okCount == 0 ? "更新失败" : "部分更新失败";
-                var text = okCount == 0
-                    ? $"{failures.Count} 个订阅都没更新成功。首个错误：{failures[0]}"
-                    : $"成功 {okCount} 个，失败 {failures.Count} 个。首个错误：{failures[0]}"
-                      + (activeUpdated ? "（当前使用的配置已刷新）" : "（当前使用的配置没有变化）");
-                Show(title, text, InfoBarSeverity.Warning);
+                Show(okCount == 0 ? "更新失败" : "部分更新失败",
+                    $"成功 {okCount} 个，失败 {failures.Count} 个。首个错误：{failures[0]} {applyNote}",
+                    InfoBarSeverity.Warning);
+            }
+            else if (!applyOk)
+            {
+                Show("已更新，但重启核心失败", applyNote, InfoBarSeverity.Warning);
             }
             else
             {
-                // 全部成功也不弹提示条（每张卡的更新时间已经变了）
                 ClearMessage();
-                if (activeUpdated)
-                {
-                    var (applyOk, note) = await ApplyAsync();
-                    if (!applyOk) Show("已全部更新，但重启核心失败", note, InfoBarSeverity.Warning);
-                }
             }
         }
         finally
@@ -412,14 +599,22 @@ public partial class SubscriptionsViewModel : ObservableObject
     }
 
     /// <summary>下载并解析单个订阅，写回 Entry。返回 (是否成功, 提示信息)。</summary>
-    private static async Task<(bool Ok, string Message)> UpdateEntryAsync(SubscriptionEntry entry)
+    private static async Task<(bool Ok, string Message)> UpdateEntryAsync(SubscriptionEntry entry,
+        CancellationToken ct = default)
     {
-        // 先把上一份可用数据留住：新配置没通过检查就原样回滚
-        // （Bettbox 切换配置失败时会回退到上一份，这里在落盘之前就做完同样的「先验证再采用」）
         var previous = (entry.Nodes, entry.Groups, entry.RouteJson, entry.DnsJson);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeout.CancelAfter(TimeSpan.FromMinutes(2));
         try
         {
-            var (nodes, groups, routing, errors) = await AppServices.Subscriptions.ImportFullAsync(entry.Url);
+            ct.ThrowIfCancellationRequested();
+            entry.LastUpdateAttempt = DateTimeOffset.Now;
+            AppServices.Store.Save(AppServices.Settings);
+            var (nodes, groups, routing, errors, usage) = await AppServices.Subscriptions.ImportFullAsync(entry.Url, timeout.Token);
+            // 用量是服务端对「这次拉取」的说明，和配置能不能用无关：
+            // 即使随后的配置检查没过，这份额度信息仍然是真的，照样记下。
+            // 服务端这次没给响应头就保留上一次的，别把用户已经看到的额度抹掉。
+            if (usage is not null) entry.Usage = usage;
 
             var candidate = new SubscriptionEntry
             {
@@ -433,7 +628,8 @@ public partial class SubscriptionsViewModel : ObservableObject
 
             // sing-box 自带 check 子命令：把这份订阅当作当前配置渲染一遍再校验，
             // 不需要额外组件、不启动核心、不占端口
-            var report = await RunCheckAsync(candidate);
+            var report = await RunCheckAsync(candidate, timeout.Token);
+            timeout.Token.ThrowIfCancellationRequested();
             ApplyCheckReport(entry, report);
             if (report.Failed)
             {
@@ -461,6 +657,15 @@ public partial class SubscriptionsViewModel : ObservableObject
             var parts = new[] { detail ?? "", checkNote, routingNote }.Where(p => p.Length > 0).ToArray();
             return (true, string.Join(" ", parts));
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            entry.LastError = "更新超时，已保留上一份可用配置。";
+            return (false, entry.LastError);
+        }
         catch (Exception ex)
         {
             entry.LastError = ex.Message;
@@ -473,7 +678,8 @@ public partial class SubscriptionsViewModel : ObservableObject
     /// </summary>
     public async Task CheckAsync(SubscriptionItemViewModel item)
     {
-        if (item.IsUpdating || IsBusy) return;
+        if (item.IsUpdating || IsBusy || !AppServices.Settings.Subscriptions.Contains(item.Entry)) return;
+        IsBusy = true;
         item.IsUpdating = true;
         UpdatingCount++;
         try
@@ -500,24 +706,25 @@ public partial class SubscriptionsViewModel : ObservableObject
         {
             item.IsUpdating = false;
             UpdatingCount--;
+            IsBusy = false;
             Reload();
         }
     }
 
     /// <summary>用核心路径组一个检查器；机器上没有 sing-box.exe 时返回 null（记为跳过）。</summary>
-    private static Func<string, Task>? CreateChecker()
+    private static Func<string, Task>? CreateChecker(CancellationToken ct)
     {
         var corePath = AppServices.ResolveCorePath();
         if (!File.Exists(corePath)) return null;
-        return path =>
+        return async path =>
         {
-            AppServices.Core.CorePath = corePath;
-            return AppServices.Core.CheckAsync(path);
+            using var checker = new SingBoxCoreManager { CorePath = corePath };
+            await checker.CheckAsync(path, ct);
         };
     }
 
-    private static Task<ConfigCheckReport> RunCheckAsync(SubscriptionEntry entry) =>
-        SubscriptionCheck.RunAsync(AppServices.Settings, entry, CreateChecker());
+    private static Task<ConfigCheckReport> RunCheckAsync(SubscriptionEntry entry, CancellationToken ct = default) =>
+        SubscriptionCheck.RunAsync(AppServices.Settings, entry, CreateChecker(ct), ct);
 
     private static void ApplyCheckReport(SubscriptionEntry entry, ConfigCheckReport report)
     {
@@ -681,6 +888,20 @@ public partial class SubscriptionItemViewModel : ObservableObject
     };
 
     private string CheckTimeText => Entry.LastCheckedAt is { } at ? at.LocalDateTime.ToString("MM-dd HH:mm") : "";
+
+    // ---------- 用量与到期（服务端在响应头里给了才显示，没给就完全不占位置） ----------
+
+    public Visibility UsageVisibility => Entry.Usage is null ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>如「剩余 12.30 GB / 20.00 GB（已用 38%）· 23 天后到期（11-29）」。</summary>
+    public string UsageText => Entry.Usage?.Describe(DateTimeOffset.Now) ?? "";
+
+    public Brush UsageBrush => Entry.Usage?.Level(DateTimeOffset.Now) switch
+    {
+        SubscriptionUsageLevel.Critical => ErrorBrush,
+        SubscriptionUsageLevel.Warning => WarnBrush,
+        _ => OkBrush,
+    };
 
     /// <summary>更新中时按钮换成进度环。</summary>
     public Visibility UpdateButtonVisibility => IsUpdating ? Visibility.Collapsed : Visibility.Visible;

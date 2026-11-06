@@ -49,6 +49,7 @@ public partial class App : Application
 
             _window = new MainWindow();
             _window.Activate();
+            AppServices.SubscriptionsVm.StartAutomaticUpdates();
         }
         catch (Exception ex)
         {

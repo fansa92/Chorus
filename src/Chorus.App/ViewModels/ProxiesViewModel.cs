@@ -1062,11 +1062,10 @@ public partial class ProxyMemberViewModel : ObservableObject
         : HorizontalAlignment.Center;
 
     /// <summary>
-    /// 「仅图标」模式下节点名称收进悬浮提示；名称本来就显示着时返回空串——
-    /// 空串不会弹出 ToolTip，也就不会在 UIA 树里多出一个同名文本节点
-    /// （那会让自动化点击点到提示气泡而不是卡片）。
+    /// 「仅图标」模式下节点名称收进悬浮提示；名称本来就显示着时要给 null，不能给空串——
+    /// 实测空串照样会弹气泡，只是弹出一个 20×16 的空白小方块，很碍眼。
     /// </summary>
-    public string ToolTipName => ProxiesStyleMetrics.ShowNodeName ? "" : Name;
+    public string? ToolTipName => ProxiesStyleMetrics.ShowNodeName ? null : Name;
 
     /// <summary>设置里的密度/尺寸/图标样式变化后刷新卡片显隐。</summary>
     public void RefreshStyle()

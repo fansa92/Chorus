@@ -38,7 +38,11 @@
         </Grid.RowDefinitions>
 
         <StackPanel Padding="24,18,24,4" Spacing="10">
-            <TextBlock Text="仪表盘" Style="{StaticResource TitleTextBlockStyle}" />
+            <Grid ColumnDefinitions="*,Auto">
+                <TextBlock Text="仪表盘" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+                <Button x:Name="DiagnosticsButton" Grid.Column="1" Content="一键诊断"
+                        Style="{StaticResource AccentButtonStyle}" Click="Diagnostics_Click" />
+            </Grid>
             <InfoBar
                 IsOpen="{x:Bind Vm.HasHint}"
                 Title="提示"

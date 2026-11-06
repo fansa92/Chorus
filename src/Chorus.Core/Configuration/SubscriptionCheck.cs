@@ -96,6 +96,9 @@ public static partial class SubscriptionCheck
         Func<string, Task>? checkConfig,
         CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
+        if (entry.Nodes.Count == 0)
+            return new ConfigCheckReport(ConfigCheckStatus.Failed, 0, entry.Groups.Count, 0, 0, "订阅没有可用节点。");
         (string Json, int Nodes, int Groups, int Rules, int RuleSets) built;
         try
         {

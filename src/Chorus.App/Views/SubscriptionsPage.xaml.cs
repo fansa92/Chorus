@@ -163,4 +163,6 @@ public sealed partial class SubscriptionsPage : Page
     }
 
     private void Message_Closed(InfoBar sender, InfoBarClosedEventArgs args) => Vm.DismissMessage();
+
+    private void Page_Loaded(object sender, RoutedEventArgs e) => Vm.ShowUsageAlert();
 }

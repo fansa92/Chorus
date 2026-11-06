@@ -60,6 +60,7 @@ public sealed partial class MainWindow : Window
                 .Any(a => a.Equals("--start", StringComparison.OrdinalIgnoreCase)))
             _ = StartCoreOnLaunchAsync();
 
+        Closed += (_, _) => AppServices.SubscriptionsVm.StopAutomaticUpdates();
         AppWindow.Closing += (s, e) =>
         {
             if (!_exiting && AppServices.Settings.CloseToTray)
@@ -130,6 +131,7 @@ public sealed partial class MainWindow : Window
 
     private async Task ExitAsync()
     {
+        AppServices.SubscriptionsVm.StopAutomaticUpdates();
         try
         {
             // 停止核心可能卡住（如核心无响应），加超时兜底，避免退出流程被挂起

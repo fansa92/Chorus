@@ -37,6 +37,8 @@ public sealed class SettingsStore
         // 否则 UI 的选中态会全部落空。归一化改过值就顺手落盘，让配置自愈。
         var before = Serialize(settings);
         ProxiesStyleOptions.Sanitize(settings);
+        settings.SubscriptionUpdateIntervalHours = Chorus.Core.SubscriptionUpdateSchedule.NormalizeInterval(
+            settings.SubscriptionUpdateIntervalHours);
         if (Serialize(settings) != before)
         {
             try { Save(settings); }

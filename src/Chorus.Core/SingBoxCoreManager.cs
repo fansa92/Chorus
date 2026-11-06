@@ -125,10 +125,21 @@ public sealed class SingBoxCoreManager : IDisposable
             },
         };
         process.Start();
-        var stdout = process.StandardOutput.ReadToEndAsync(ct);
-        var stderr = process.StandardError.ReadToEndAsync(ct);
-        await process.WaitForExitAsync(ct);
-        return (process.ExitCode, (await stdout) + (await stderr));
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        try
+        {
+            await process.WaitForExitAsync(ct);
+            return (process.ExitCode, (await stdout) + (await stderr));
+        }
+        finally
+        {
+            if (!process.HasExited)
+            {
+                try { process.Kill(entireProcessTree: true); }
+                catch (InvalidOperationException) { }
+            }
+        }
     }
 
     private int? SafeExitCode()

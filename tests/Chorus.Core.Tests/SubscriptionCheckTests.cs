@@ -136,6 +136,25 @@ public class SubscriptionCheckTests
     }
 
     [Fact]
+    public async Task Empty_Subscription_Cannot_Pass_Using_Manual_Nodes()
+    {
+        var settings = Settings();
+        Assert.NotEmpty(settings.Profile.Nodes);
+        var report = await SubscriptionCheck.RunAsync(settings, Candidate(), checkConfig: null);
+        Assert.Equal(ConfigCheckStatus.Failed, report.Status);
+        Assert.Contains("没有可用节点", report.Error!);
+    }
+
+    [Fact]
+    public async Task Cancelled_Check_Does_Not_Accept_Unvalidated_Data()
+    {
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            SubscriptionCheck.RunAsync(Settings(), Candidate("CAND"), null, cancellation.Token));
+    }
+
+    [Fact]
     public async Task RunAsync_Fails_Without_Nodes()
     {
         var settings = Settings();

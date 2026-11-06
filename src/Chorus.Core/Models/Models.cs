@@ -68,6 +68,7 @@ public sealed class SubscriptionEntry
     public string? DnsJson { get; set; }
 
     public DateTimeOffset? LastUpdated { get; set; }
+    public DateTimeOffset? LastUpdateAttempt { get; set; }
     public string? LastError { get; set; }
 
     /// <summary>最近一次配置检查是否通过（sing-box check）。null = 还没检查过。</summary>
@@ -81,6 +82,9 @@ public sealed class SubscriptionEntry
 
     /// <summary>检查通过时的规模摘要，如「63 个节点 · 16 个策略组 · 14 条路由规则 · 12 个规则集」。</summary>
     public string? LastCheckSummary { get; set; }
+
+    /// <summary>服务端提供的用量信息（剩余流量、到期时间）；不提供时为 null。</summary>
+    public SubscriptionUsage? Usage { get; set; }
 }
 
 public sealed class AppSettings
@@ -106,6 +110,8 @@ public sealed class AppSettings
     /// 或者当前配置的代理走不通时打开它，更新就不再依赖正在运行的配置。
     /// </summary>
     public bool SubscriptionDirectUpdate { get; set; }
+    public bool SubscriptionAutoUpdate { get; set; }
+    public int SubscriptionUpdateIntervalHours { get; set; } = 24;
 
     public List<SubscriptionEntry> Subscriptions { get; set; } = [];
     public Profile Profile { get; set; } = new();

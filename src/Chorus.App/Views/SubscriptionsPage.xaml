@@ -6,7 +6,8 @@
     xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
     xmlns:vm="using:Chorus.App.ViewModels"
     x:DefaultBindMode="OneWay"
-    mc:Ignorable="d">
+    mc:Ignorable="d"
+    Loaded="Page_Loaded">
 
     <Grid RowDefinitions="Auto,Auto,*" Padding="24,18,24,0">
         <!-- 标题行 -->
@@ -17,7 +18,8 @@
                 <CheckBox Content="直连更新" VerticalAlignment="Center"
                           IsChecked="{x:Bind Vm.DirectUpdate, Mode=TwoWay}"
                           ToolTipService.ToolTip="{x:Bind Vm.DirectUpdateHint}" />
-                <Button Content="添加订阅" Click="Add_Click" Style="{StaticResource AccentButtonStyle}" />
+                <Button Content="添加订阅" Click="Add_Click" Style="{StaticResource AccentButtonStyle}"
+                        IsEnabled="{x:Bind Vm.CanEditSubscriptions}" />
                 <Button Click="UpdateAll_Click" IsEnabled="{x:Bind Vm.CanUpdateAll, Mode=OneWay}">
                     <StackPanel Orientation="Horizontal" Spacing="6">
                         <ProgressRing Width="14" Height="14" IsActive="{x:Bind Vm.IsBusy, Mode=OneWay}"
@@ -30,6 +32,35 @@
 
         <!-- 消息条 + 摘要 -->
         <StackPanel Grid.Row="1" Spacing="10" Margin="0,12,0,12">
+            <Border Padding="14,10" CornerRadius="8"
+                    Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <StackPanel Spacing="6">
+                    <StackPanel Orientation="Horizontal" Spacing="16">
+                        <ToggleSwitch Header="自动更新订阅" IsOn="{x:Bind Vm.AutoUpdate, Mode=TwoWay}"
+                                      OffContent="关闭" OnContent="开启" />
+                        <ComboBox Header="更新周期" Width="140" IsEnabled="{x:Bind Vm.AutoUpdate}"
+                                  SelectedIndex="{x:Bind Vm.AutoUpdateIntervalIndex, Mode=TwoWay}">
+                            <ComboBoxItem Content="每 1 小时" />
+                            <ComboBoxItem Content="每 6 小时" />
+                            <ComboBoxItem Content="每 12 小时" />
+                            <ComboBoxItem Content="每 24 小时" />
+                        </ComboBox>
+                        <!-- 规则说明收进提示按钮，别让它长期占两行 -->
+                        <Button x:Name="AutoUpdateHelpButton" Width="30" Height="30" Padding="0"
+                                VerticalAlignment="Center" AutomationProperties.Name="自动更新说明">
+                            <ToolTipService.ToolTip>
+                                <ToolTip MaxWidth="360">
+                                    <TextBlock TextWrapping="Wrap"
+                                               Text="仅在应用运行时更新（含托盘）；失败保留旧配置，按所选周期重试。不会自动切换订阅或重启核心，新配置下次启动核心后生效。" />
+                                </ToolTip>
+                            </ToolTipService.ToolTip>
+                            <FontIcon Glyph="&#xE897;" FontSize="14" />
+                        </Button>
+                    </StackPanel>
+                    <TextBlock Text="{x:Bind Vm.AutoUpdateScheduleText}" FontSize="12" TextWrapping="Wrap" />
+                    <TextBlock Text="{x:Bind Vm.AutoUpdateStatus}" FontSize="12" Opacity="0.7" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
             <InfoBar
                 IsOpen="{x:Bind Vm.HasMessage, Mode=OneWay}"
                 Title="{x:Bind Vm.MessageTitle, Mode=OneWay}"
@@ -39,6 +70,11 @@
                 Closed="Message_Closed" />
             <TextBlock Text="{x:Bind Vm.SummaryText, Mode=OneWay}"
                        Opacity="0.7" FontSize="12" TextWrapping="Wrap" />
+            <!-- 到期/流量提醒：服务端没给用量、或用量和期限都健康时整行不显示 -->
+            <TextBlock Text="{x:Bind Vm.UsageAlertText, Mode=OneWay}"
+                       Foreground="{x:Bind Vm.UsageAlertBrush, Mode=OneWay}"
+                       FontSize="12" TextWrapping="Wrap"
+                       Visibility="{x:Bind Vm.UsageAlertVisibility, Mode=OneWay}" />
             <TextBlock Text="{x:Bind Vm.ActiveHintText, Mode=OneWay}"
                        Opacity="0.5" FontSize="11" TextWrapping="Wrap" />
         </StackPanel>
@@ -58,6 +94,7 @@
         <!-- 订阅卡片阵列（布局参考 Bettbox 的配置页：卡片按可用宽度自适应多列，
              状态与操作都在卡片内完成） -->
         <ScrollViewer Grid.Row="2" Padding="0,0,0,20" VerticalScrollBarVisibility="Auto"
+                      IsEnabled="{x:Bind Vm.CanEditSubscriptions}"
                       Visibility="{x:Bind Vm.ListVisibility, Mode=OneWay}">
             <ItemsRepeater ItemsSource="{x:Bind Vm.Items, Mode=OneWay}">
                 <ItemsRepeater.Layout>
@@ -127,8 +164,13 @@
                                                VerticalAlignment="Center" />
                                 </Grid>
 
-                                <!-- 失败原因与配置检查结论（按需显示） -->
+                                <!-- 用量与期限（服务端在响应头里给了才有这一行）+ 失败原因与配置检查结论 -->
                                 <StackPanel Grid.Row="2" Spacing="3">
+                                    <TextBlock Text="{x:Bind UsageText}" FontSize="11"
+                                               Foreground="{x:Bind UsageBrush}"
+                                               TextTrimming="CharacterEllipsis"
+                                               Visibility="{x:Bind UsageVisibility}"
+                                               ToolTipService.ToolTip="用量与到期时间由订阅服务端提供，每次更新时刷新；服务端不提供则不显示" />
                                     <TextBlock Text="{x:Bind ErrorText}" FontSize="11"
                                                Foreground="#D13438" TextWrapping="Wrap"
                                                MaxLines="2" TextTrimming="CharacterEllipsis"

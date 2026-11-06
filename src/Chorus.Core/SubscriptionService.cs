@@ -1,8 +1,12 @@
 using System.Net;
+using System.Net.Http.Headers;
 using Chorus.Core.Models;
 using Chorus.Core.Net;
 
 namespace Chorus.Core;
+
+/// <summary>一次订阅拉取的结果：正文 + 服务端响应头里的用量信息（没有时为 null）。</summary>
+public sealed record SubscriptionFetchResult(string Content, SubscriptionUsage? Usage);
 
 /// <summary>从订阅地址下载内容并解析为节点列表与策略组。</summary>
 public sealed class SubscriptionService
@@ -42,8 +46,8 @@ public sealed class SubscriptionService
     /// <summary>最近一次拉取走的是哪条路（代理 / 直连用了哪个 IP），用于在界面上给出可见的依据。</summary>
     public string? LastFetchDetail { get; private set; }
 
-    /// <summary>下载订阅原始内容。默认优先经核心代理；直连时先做多 DNS 解析 + IP 竞速。</summary>
-    public async Task<string> FetchAsync(string url, CancellationToken ct = default)
+    /// <summary>下载订阅原始内容，并顺带读出服务端在响应头里给的用量信息。</summary>
+    public async Task<SubscriptionFetchResult> FetchAsync(string url, CancellationToken ct = default)
     {
         var endpoint = DirectOnly ? null : ProxyProvider?.Invoke();
         Exception? proxyFailure = null;
@@ -53,9 +57,9 @@ public sealed class SubscriptionService
         {
             try
             {
-                var content = await GetStringAsync(Client(proxy), url, ct);
+                var fetched = await GetStringAsync(Client(proxy), url, ct);
                 LastFetchDetail = $"经核心代理 {proxy.Host}:{proxy.Port}";
-                return content;
+                return fetched;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -84,9 +88,9 @@ public sealed class SubscriptionService
                     Timeout = DirectTimeout,
                 };
                 pinned.DefaultRequestHeaders.UserAgent.ParseAdd(_userAgent);
-                var content = await GetStringAsync(pinned, url, ct);
+                var fetched = await GetStringAsync(pinned, url, ct);
                 LastFetchDetail = raced.Describe();
-                return content;
+                return fetched;
             }
             raceNote = "所有候选 IP 均不可达";
         }
@@ -104,9 +108,9 @@ public sealed class SubscriptionService
         // 兜底：走系统解析的普通直连（竞速本身可能因本机网络异常整体失败）
         try
         {
-            var content = await GetStringAsync(Client(null), url, ct);
+            var fetched = await GetStringAsync(Client(null), url, ct);
             LastFetchDetail = "直连（系统 DNS）";
-            return content;
+            return fetched;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -128,7 +132,7 @@ public sealed class SubscriptionService
     public async Task<(List<NodeEntry> Nodes, List<string> Errors)> ImportFromUrlAsync(
         string url, CancellationToken ct = default)
     {
-        var content = await FetchAsync(url, ct);
+        var content = (await FetchAsync(url, ct)).Content;
         return Parsing.SubscriptionParser.Parse(content);
     }
 
@@ -136,20 +140,21 @@ public sealed class SubscriptionService
     public async Task<(List<NodeEntry> Nodes, List<ProxyGroup> Groups, List<string> Errors)> ImportFromUrlWithGroupsAsync(
         string url, CancellationToken ct = default)
     {
-        var (nodes, groups, _, errors) = await ImportFullAsync(url, ct);
+        var (nodes, groups, _, errors, _) = await ImportFullAsync(url, ct);
         return (nodes, groups, errors);
     }
 
     /// <summary>
-    /// 完整导入：节点 + 策略组 + 订阅自带的 route/dns 片段。
+    /// 完整导入：节点 + 策略组 + 订阅自带的 route/dns 片段 + 服务端用量信息。
     /// 路由片段只有 sing-box 原生 JSON 订阅才有（Clash YAML / 分享链接返回 null）。
     /// </summary>
-    public async Task<(List<NodeEntry> Nodes, List<ProxyGroup> Groups, Parsing.SubscriptionRouting? Routing, List<string> Errors)>
+    public async Task<(List<NodeEntry> Nodes, List<ProxyGroup> Groups, Parsing.SubscriptionRouting? Routing,
+        List<string> Errors, SubscriptionUsage? Usage)>
         ImportFullAsync(string url, CancellationToken ct = default)
     {
-        var content = await FetchAsync(url, ct);
-        var (nodes, groups, errors) = Parsing.SubscriptionParser.ParseWithGroups(content);
-        return (nodes, groups, Parsing.SubscriptionParser.ExtractRouting(content), errors);
+        var fetched = await FetchAsync(url, ct);
+        var (nodes, groups, errors) = Parsing.SubscriptionParser.ParseWithGroups(fetched.Content);
+        return (nodes, groups, Parsing.SubscriptionParser.ExtractRouting(fetched.Content), errors, fetched.Usage);
     }
 
     /// <summary>
@@ -186,12 +191,35 @@ public sealed class SubscriptionService
         return client;
     }
 
-    private static async Task<string> GetStringAsync(HttpClient client, string url, CancellationToken ct)
+    private static async Task<SubscriptionFetchResult> GetStringAsync(HttpClient client, string url, CancellationToken ct)
     {
         using var resp = await client.GetAsync(url, ct);
         resp.EnsureSuccessStatusCode();
-        return await resp.Content.ReadAsStringAsync(ct);
+        var content = await resp.Content.ReadAsStringAsync(ct);
+        return new SubscriptionFetchResult(content, ReadUsage(resp, DateTimeOffset.Now));
     }
+
+    /// <summary>
+    /// 用量信息只可能在响应头里，服务端不给就是不给（不猜、不报错）。
+    /// 少数服务端会把它挂在 Content-Type 同级的内容头上，两处都看一眼。
+    /// </summary>
+    internal static SubscriptionUsage? ReadUsage(HttpResponseMessage response, DateTimeOffset now)
+    {
+        foreach (var headers in new HttpHeaders[] { response.Headers, response.Content.Headers })
+        {
+            foreach (var name in UsageHeaderNames)
+            {
+                if (headers.TryGetValues(name, out var values)
+                    && SubscriptionUsage.Parse(values.FirstOrDefault(), now) is { } usage)
+                {
+                    return usage;
+                }
+            }
+        }
+        return null;
+    }
+
+    private static readonly string[] UsageHeaderNames = ["subscription-userinfo", "subscription-info", "x-subscription-userinfo"];
 
     private static string Describe(Exception ex) => ex switch
     {
