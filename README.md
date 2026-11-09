@@ -179,8 +179,8 @@ Chorus/
 ## 用户使用说明
 
 1. 从 [Releases](https://github.com/fansa92/Chorus/releases) 下载并解压（**都已内置官方 sing-box 核心**，位于 `core\sing-box.exe`，构建时自动打包最新稳定版），按需选一个：
-   - `Chorus-win-x64.zip` —— **自包含**，什么都不用装，解压即用（约 220 MB）
-   - `Chorus-win-x64-framework-dependent.zip` —— **框架依赖**，体积更小（约 140 MB），但需要先装 [.NET 10 运行时（桌面运行时 · x64）](https://dotnet.microsoft.com/download/dotnet/10.0)
+   - `Chorus-win-x64.zip` —— **自包含**，什么都不用装，解压即用（压缩包约 115 MB）
+   - `Chorus-win-x64-framework-dependent.zip` —— **框架依赖**，压缩包更小（约 80 MB），但需要先装 [.NET 10 运行时（桌面运行时 · x64）](https://dotnet.microsoft.com/download/dotnet/10.0)
 
    两个包功能完全一致，Windows App SDK 运行时都已随包内置，不用另外安装。
 2. 启动应用 → 侧边栏「订阅」页添加订阅链接（支持多个，点卡片可切换当前使用的配置）→ 仪表盘打开开关。

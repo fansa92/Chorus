@@ -149,10 +149,10 @@ jobs:
           body: |
             ## 下载哪个包？
 
-            | 发布包 | 需要先装什么 | 体积 |
+            | 发布包 | 需要先装什么 | 压缩包体积 |
             | --- | --- | --- |
-            | `Chorus-win-x64.zip`（**自包含**） | 什么都不用装，解压即用 | 约 220 MB |
-            | `Chorus-win-x64-framework-dependent.zip`（**框架依赖**） | [.NET 10 运行时（桌面运行时 · x64）](https://dotnet.microsoft.com/download/dotnet/10.0) | 约 140 MB |
+            | `Chorus-win-x64.zip`（**自包含**） | 什么都不用装，解压即用 | 约 115 MB |
+            | `Chorus-win-x64-framework-dependent.zip`（**框架依赖**） | [.NET 10 运行时（桌面运行时 · x64）](https://dotnet.microsoft.com/download/dotnet/10.0) | 约 80 MB |
 
             两个包功能完全一致，都已内置 sing-box 核心（`core/sing-box.exe`），解压后直接运行 `Chorus.App.exe`。
             框架依赖包体积更小，但要求机器上已安装 .NET 10 运行时；Windows App SDK 运行时已随包内置，无需另外安装。
