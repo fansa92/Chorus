@@ -296,6 +296,22 @@
                                       IsHitTestVisible="False" VerticalAlignment="Center"
                                       IsOn="{x:Bind Vm.CloseToTray, Mode=TwoWay}" />
                     </Grid>
+
+                    <Border Style="{StaticResource RowDividerStyle}" />
+
+                    <Grid Style="{StaticResource SettingsRowStyle}" ColumnDefinitions="*,Auto"
+                          Tag="autoStart" Tapped="ToggleRow_Tapped"
+                          AutomationProperties.Name="开机自动启动">
+                        <StackPanel>
+                            <TextBlock Text="开机自动启动" Style="{StaticResource RowTitleStyle}" />
+                            <TextBlock Style="{StaticResource RowSubtitleStyle}"
+                                       Text="登录后自动启动应用并拉起核心（--start），不需要管理员权限" />
+                        </StackPanel>
+                        <ToggleSwitch x:Name="AutoStartToggle" Grid.Column="1"
+                                      OnContent="" OffContent="" MinWidth="0"
+                                      IsHitTestVisible="False" VerticalAlignment="Center"
+                                      IsOn="{x:Bind Vm.AutoStartEnabled, Mode=TwoWay}" />
+                    </Grid>
                 </StackPanel>
             </Border>
 

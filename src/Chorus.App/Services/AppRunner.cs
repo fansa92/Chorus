@@ -92,7 +92,7 @@ public sealed partial class AppRunner
 
             var settings = AppServices.Settings;
             if (settings.EnableSystemProxy && !settings.EnableTun)
-                SafeDisableProxyOnExit(SystemProxyManager.Disable);
+                SafeDisableProxyOnExit(() => SystemProxyManager.DisableWithRestore());
 
             _trafficCts?.Cancel();
             _trafficCts = null;
@@ -167,7 +167,7 @@ public sealed partial class AppRunner
         _trafficCts?.Cancel();
         _trafficCts = null;
         if (AppServices.Settings.EnableSystemProxy && !AppServices.Settings.EnableTun)
-            SafeDisableProxyOnExit(SystemProxyManager.Disable);
+            SafeDisableProxyOnExit(() => SystemProxyManager.DisableWithRestore());
         DetachCoreHandlers();
 
         IsRunning = false;

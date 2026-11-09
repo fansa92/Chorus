@@ -160,4 +160,51 @@ public class ClashApiClientTests
 
         Assert.Empty(await client.GetConnectionsAsync());
     }
+
+    [Fact]
+    public async Task GetConnectionsAsync_Parses_Id_Start_And_ProcessName()
+    {
+        var handler = new FakeHandler
+        {
+            Responder = _ => JsonResponse("""
+            {"connections":[{"id":"abc-123","metadata":{"network":"tcp","type":"mixed-in",
+              "sourceIP":"127.0.0.1","sourcePort":"52133","destinationIP":"1.1.1.1",
+              "destinationPort":"443","host":"one.one.one.one",
+              "processPath":"C:\\Program Files\\browser\\chrome.exe"},
+             "upload":1,"download":2,"start":"2026-11-09T08:00:00Z",
+             "chains":["DIRECT"],"rule":"final","rulePayload":""}]}
+            """),
+        };
+
+        var c = Assert.Single(await new ClashApiClient(handler).GetConnectionsAsync());
+        Assert.Equal("abc-123", c.Id);
+        Assert.Equal("chrome.exe", c.ProcessName);
+        Assert.Equal("127.0.0.1", c.SourceIp);
+        Assert.Equal("52133", c.SourcePort);
+        Assert.Equal(new DateTimeOffset(2026, 11, 9, 8, 0, 0, TimeSpan.Zero), c.Start);
+    }
+
+    [Fact]
+    public async Task CloseConnectionAsync_Sends_Delete_With_Escaped_Id()
+    {
+        var handler = new FakeHandler { Responder = _ => new HttpResponseMessage(HttpStatusCode.NoContent) };
+        var client = new ClashApiClient(handler);
+
+        Assert.True(await client.CloseConnectionAsync("abc 123/456"));
+
+        var req = Assert.Single(handler.Requests);
+        Assert.Equal(HttpMethod.Delete, req.Method);
+        Assert.Equal("/connections/abc 123/456", Uri.UnescapeDataString(req.RequestUri!.AbsolutePath));
+    }
+
+    [Fact]
+    public async Task CloseConnectionAsync_Treats_NotFound_As_Already_Gone()
+    {
+        var handler = new FakeHandler { Responder = _ => new HttpResponseMessage(HttpStatusCode.NotFound) };
+        var client = new ClashApiClient(handler);
+
+        Assert.False(await client.CloseConnectionAsync("gone"));
+        Assert.False(await client.CloseConnectionAsync(""));
+        Assert.Single(handler.Requests); // 空 Id 不该发请求
+    }
 }

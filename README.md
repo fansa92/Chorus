@@ -33,6 +33,8 @@
 **订阅** —— 多订阅管理，点卡片即可切换「当前使用的配置」（Bettbox 的 profile 语义），卡片上带状态徽标、相对更新时间、节点与策略组数量。
 ![订阅](docs/screenshots/subscriptions.png)
 
+**连接管理** —— 侧栏「连接」页每 2 秒轮询 Clash API `/connections`，逐条列出**目标域名/IP、进程、命中规则、代理链路、上下行总量与实时速率、连接时长**；支持按域名 / IP / 端口 / 进程 / 规则 / 链路搜索，按「代理 / 直连 / 阻断」和 TCP/UDP 过滤，按最近建立 / 下载量 / 上传量 / 进程排序；可逐条断开或一键断开全部。列表按连接 Id **增量更新**（不是每轮重建），滚动位置和鼠标焦点不会跳。配合日志页的「路由链路」可以完整看到「哪个进程、走了哪条规则、经哪几个节点、跑了多少流量」。
+
 **规则** —— 三标签展示真正生成进 `config.json` 的路由规则、规则集与 DNS；条件翻成中文，点行展开原始 JSON。
 
 路由规则：
@@ -120,7 +122,7 @@ DNS 服务器与 DNS 规则：
 | MVVM | CommunityToolkit.Mvvm 8.4 |
 | 托盘 | H.NotifyIcon.WinUI |
 | 核心 | sing-box ≥ 1.12（CI 打包最新稳定版，位于 `core\sing-box.exe`） |
-| 测试 | xUnit（181 个用例，`Chorus.Core` 跨平台可跑） |
+| 测试 | xUnit（304 个用例，`Chorus.Core` 跨平台可跑） |
 
 ## 目录结构
 
@@ -138,7 +140,7 @@ Chorus/
 │  │  ├─ Interop/            # Job Object（随宿主退出杀核心）
 │  │  └─ ...                 # 进程管理、系统代理、订阅下载
 │  └─ Chorus.App/            # WinUI 3 应用
-│     ├─ Views/              # 六个页面 + 主窗口
+│     ├─ Views/              # 七个页面 + 主窗口
 │     ├─ ViewModels/
 │     └─ Services/           # AppServices、AppRunner（核心生命周期）、ThemeService、Loc
 ├─ tests/Chorus.Core.Tests/  # xUnit 单元测试
@@ -187,6 +189,13 @@ Chorus/
 5. 设置与节点保存在 `%LOCALAPPDATA%\Chorus\settings.json`（**不在安装目录里**，升级/换包不会把订阅信息带进发布包；卸载时删掉该目录即可清干净），日志在 `%LOCALAPPDATA%\Chorus\crash.log`（异常才写）。
 6. 想换核心版本：替换 `core\sing-box.exe`，或把新版放到 `%LOCALAPPDATA%\Chorus\core\`（优先读便携目录）。
    注意：应用要求 sing-box **1.12 或更高版本**（配置使用新版 DNS 服务器格式；CI 打包时自动下载最新稳定版）。
+
+### 托盘与开机自启
+
+- **托盘菜单**：右键托盘图标可直接启停核心、切换出站模式（规则 / 全局 / 直连，`●` 标出当前项）、拨动 `系统代理` / `TUN 模式` / `允许局域网`、跳到连接 / 策略组 / 设置页，或退出。菜单每次弹出前按当前运行态与界面语言刷新文案；命令读的是实时状态，不会点错。
+  > H.NotifyIcon 的 `PopupMenu` 模式生成的是**原生菜单**：菜单项必须在 XAML 里静态定义、且操作只走 `Command`（`Click` 事件不会触发），`Opening` 事件也不保证触发。运行时增删 `MenuFlyout.Items` 会让整个菜单消失，所以代码只改文本和 `IsEnabled`。
+- **开机自动启动**：设置页「其他」分组的开关写 `HKCU\...\CurrentVersion\Run`，值为 `"<Chorus.App.exe>" --start`（启动即拉起核心），不需要管理员权限。状态以注册表为准、不写进 `settings.json`，避免两处状态不一致；关闭时只删本应用写的项，不会动别人占用的同名项。
+- **系统代理原值恢复**：开启系统代理前会快照你原本的 `ProxyServer` / `ProxyOverride` / `AutoConfigURL` 到 `%LOCALAPPDATA%\Chorus\system-proxy-backup.json`，关闭时按快照还原，而不是只把开关置 0 —— 否则用户自己配的公司代理或 PAC 会被覆盖后找不回来。恢复前会核对代理是否仍指向本应用端口，中途你自己改过就一律不动。
 
 ### 外观与语言（设置页）
 
@@ -251,14 +260,14 @@ TUN 需要管理员权限。当前版本请以管理员身份运行应用后启�
 
 ## 已知限制
 
-- 应用异常退出时系统代理可能残留，可在 Windows 设置中手动关闭，或重启本应用再退出
+- 应用被强杀后系统代理可能残留到下次启动；启动时会自动检测「指向本应用端口」的残留并按快照恢复成你原来的设置（含公司代理 / PAC），启动时会在仪表盘提示一次。若期间手动改过代理，应用不会去覆盖它
 - 订阅域名落在被封锁的 CDN 边缘 IP 段时，竞速也可能找不到可用 IP，提示里会给出实际尝试的地址与候选数量
 - 远程规则集由核心在启动时下载，冷启动可能要几十秒，期间策略组页会显示「正在等待核心就绪…」。下载成功后规则集会缓存在 `%LOCALAPPDATA%\Chorus\data\cache.db`（bbolt 格式），之后启动直接复用缓存，即使断网也能起内核；规则页的「清缓存重新下载」可以强制刷新
 
 ## 路线图
 
 - [ ] 核心自动下载/更新（GitHub Releases）；断网检测
-- [ ] 连接管理页（Clash API `/connections`）
+- [x] 连接管理页（Clash API `/connections`）
 - [ ] 策略组 UI 编辑器（当前是 JSON）
 - [ ] TUN 提权服务模式；MSIX 打包
 

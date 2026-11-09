@@ -602,7 +602,7 @@ public partial class DashboardViewModel : ObservableObject
             if (AppServices.Runner.IsRunning)
             {
                 if (on) SystemProxyManager.Enable(settings.MixedPort);
-                else SystemProxyManager.Disable();
+                else SystemProxyManager.DisableWithRestore();
             }
 
             settings.EnableSystemProxy = on;

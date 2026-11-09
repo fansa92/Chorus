@@ -36,6 +36,7 @@ public static class AppServices
     public static ProxiesViewModel ProxiesVm { get; private set; } = null!;
     public static RulesViewModel RulesVm { get; private set; } = null!;
     public static LogsViewModel LogsVm { get; private set; } = null!;
+    public static ConnectionsViewModel ConnectionsVm { get; private set; } = null!;
     public static SettingsViewModel SettingsVm { get; private set; } = null!;
 
     public static void Initialize()
@@ -58,7 +59,7 @@ public static class AppServices
             Store.Save(Settings);
         }
 
-        CleanupStaleSystemProxy();
+        StaleProxyCleaned = CleanupStaleSystemProxy();
 
         Clash = new ClashApiClient();
         Clash.Configure("127.0.0.1", Settings.ClashApiPort, Settings.ClashApiSecret);
@@ -79,33 +80,40 @@ public static class AppServices
         ProxiesVm = new ProxiesViewModel();
         RulesVm = new RulesViewModel();
         LogsVm = new LogsViewModel();
+        ConnectionsVm = new ConnectionsViewModel();
         SettingsVm = new SettingsViewModel();
 
         // 后台检查是否需要自动更新段表（开关开着且超过 30 天没更新才拉，不阻塞启动）
         _ = SettingsVm.EnsureGeoIpAutoUpdateAsync();
     }
 
+    /// <summary>启动时清理过残留的系统代理，主窗口据此给一条提示。</summary>
+    public static bool StaleProxyCleaned { get; private set; }
+
     /// <summary>
     /// 上次进程被强杀或崩溃时，系统代理会残留并指向已经停止的核心（整机断网）。
-    /// 启动阶段把「指向本应用核心」的残留代理关掉，核心起来后会按设置重新开启。
+    /// 启动阶段把「指向本应用核心」的残留代理恢复成用户原来的设置，
+    /// 核心起来后会按设置重新开启。
     /// </summary>
-    private static void CleanupStaleSystemProxy()
+    private static bool CleanupStaleSystemProxy()
     {
         try
         {
             // 已有另一个实例在跑时，那可能是它在用的代理，绝不能动
             var others = System.Diagnostics.Process.GetProcessesByName("Chorus.App")
                 .Any(p => p.Id != Environment.ProcessId);
-            if (others) return;
+            if (others) return false;
 
             var expected = $"127.0.0.1:{Settings.MixedPort}";
-            if (SystemProxyManager.IsEnabled && SystemProxyManager.CurrentServer == expected)
-                SystemProxyManager.Disable();
+            if (SystemProxyManager.IsEnabled &&
+                string.Equals(SystemProxyManager.CurrentServer, expected, StringComparison.OrdinalIgnoreCase))
+                return SystemProxyManager.DisableWithRestore();
         }
         catch
         {
             // 清理失败不影响启动
         }
+        return false;
     }
 
     public static string ResolveCorePath()

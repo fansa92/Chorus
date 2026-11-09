@@ -116,6 +116,20 @@ public sealed class ClashApiClient
         resp.EnsureSuccessStatusCode();
     }
 
+    /// <summary>
+    /// 断开单条连接（Clash API <c>DELETE /connections/{id}</c>）。
+    /// 连接本来就可能在我们点下去之前自然结束，核心会返回 404，这里当作成功处理。
+    /// </summary>
+    public async Task<bool> CloseConnectionAsync(string id, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(id)) return false;
+        using var req = CreateRequest(HttpMethod.Delete, "/connections/" + Uri.EscapeDataString(id));
+        using var resp = await _http.SendAsync(req, ct);
+        if (resp.StatusCode == System.Net.HttpStatusCode.NotFound) return false;
+        resp.EnsureSuccessStatusCode();
+        return true;
+    }
+
     public async Task<int?> GetDelayAsync(string name, CancellationToken ct = default)
     {
         var path = "/proxies/" + Uri.EscapeDataString(name) +
@@ -205,16 +219,34 @@ public sealed record TrafficSample(long Up, long Down);
 /// </summary>
 public sealed class ConnectionInfo
 {
+    /// <summary>连接 ID，断开单条连接时要回传给核心。</summary>
+    public string Id { get; set; } = "";
     public string Host { get; set; } = "";
     public string DestinationIp { get; set; } = "";
     public string DestinationPort { get; set; } = "";
+    public string SourceIp { get; set; } = "";
+    public string SourcePort { get; set; } = "";
     public string Network { get; set; } = "";
     public string Inbound { get; set; } = "";
     public string Process { get; set; } = "";
     public string Rule { get; set; } = "";
+    public string RulePayload { get; set; } = "";
     public List<string> Chain { get; set; } = [];
     public long Upload { get; set; }
     public long Download { get; set; }
+    public DateTimeOffset? Start { get; set; }
+
+    /// <summary>进程路径在界面上太长了，只留文件名；没有进程信息时显示入站类型。</summary>
+    public string ProcessName
+    {
+        get
+        {
+            if (Process.Length == 0) return Inbound.Length > 0 ? Inbound : "未知进程";
+            var name = Process.Replace('\\', '/');
+            var slash = name.LastIndexOf('/');
+            return slash >= 0 ? name[(slash + 1)..] : name;
+        }
+    }
 
     /// <summary>日志里可能写成 host:port，也可能写成 ip:port，两个键都能匹配上这条连接。</summary>
     public IEnumerable<string> Targets
@@ -284,24 +316,41 @@ public static class ClashApiModels
             var meta = conn["metadata"] as JsonObject;
             var info = new ConnectionInfo
             {
+                Id = GetText(conn, "id"),
                 Host = GetText(meta, "host"),
                 DestinationIp = GetText(meta, "destinationIP"),
                 DestinationPort = GetText(meta, "destinationPort"),
+                SourceIp = GetText(meta, "sourceIP"),
+                SourcePort = GetText(meta, "sourcePort"),
                 Network = GetText(meta, "network"),
                 Inbound = GetText(meta, "type"),
                 Process = GetText(meta, "processPath"),
                 Rule = GetText(conn, "rule"),
+                RulePayload = GetText(conn, "rulePayload"),
                 Upload = GetLong(conn, "upload"),
                 Download = GetLong(conn, "download"),
+                Start = ParseStart(GetText(conn, "start")),
             };
             if (conn["chains"] is JsonArray chains)
                 info.Chain = chains
                     .Select(x => x is JsonValue v && v.TryGetValue<string>(out var s) ? s : "")
                     .Where(s => s.Length > 0)
                     .ToList();
+            // 极少数版本不给 id；给一个稳定的替代键，否则列表会把多条连接当成同一行
+            if (info.Id.Length == 0)
+                info.Id = $"{info.Host}:{info.DestinationPort}:{info.SourcePort}";
             result.Add(info);
         }
         return result;
+    }
+
+    /// <summary>start 是 ISO-8601 时间；核心偶尔不给或不合规，一律当未知。</summary>
+    private static DateTimeOffset? ParseStart(string text)
+    {
+        if (text.Length == 0) return null;
+        return DateTimeOffset.TryParse(text, System.Globalization.CultureInfo.InvariantCulture,
+            System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal,
+            out var value) ? value : null;
     }
 
     private static string GetText(JsonObject? obj, string property)

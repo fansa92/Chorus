@@ -4,6 +4,7 @@ using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Controls;
 using Chorus.App.Services;
 using Chorus.Core;
+using Chorus.Core.Interop;
 using Chorus.Core.Models;
 using Chorus.Core.Net;
 using Chorus.Core.Parsing;
@@ -23,6 +24,7 @@ public partial class SettingsViewModel : ObservableObject
     [ObservableProperty] private bool _enableSystemProxy;
     [ObservableProperty] private bool _allowLan;
     [ObservableProperty] private bool _closeToTray = true;
+    [ObservableProperty] private bool _autoStartEnabled;
     [ObservableProperty] private string _logLevel = "info";
     [ObservableProperty] private string _subscriptionUserAgent = SubscriptionService.DefaultUserAgent;
     [ObservableProperty] private bool _applySubscriptionRouting = true;
@@ -177,6 +179,9 @@ public partial class SettingsViewModel : ObservableObject
         EnableSystemProxy = settings.EnableSystemProxy;
         AllowLan = settings.AllowLan;
         CloseToTray = settings.CloseToTray;
+        // 自启状态以注册表为准，不写进 settings.json：两处都存会出现状态不一致
+        try { AutoStartEnabled = new AutoStartManager().IsEnabled(); }
+        catch { AutoStartEnabled = false; }
         LogLevel = settings.LogLevel;
         SubscriptionUserAgent = settings.SubscriptionUserAgent;
         ApplySubscriptionRouting = settings.ApplySubscriptionRouting;
@@ -242,6 +247,26 @@ public partial class SettingsViewModel : ObservableObject
     {
         if (_suppress) return;
         Apply(settings => settings.CloseToTray = value);
+    }
+
+    /// <summary>开机自启：写 HKCU Run 项，值形如 "…\Chorus.App.exe" --start。</summary>
+    partial void OnAutoStartEnabledChanged(bool value)
+    {
+        if (_suppress) return;
+        try
+        {
+            new AutoStartManager().SetEnabled(value);
+            Show("开机自启",
+                value ? "已设置开机启动，登录后会自动启动应用并拉起核心。" : "已取消开机启动。",
+                InfoBarSeverity.Success);
+        }
+        catch (Exception ex)
+        {
+            _suppress = true;
+            AutoStartEnabled = !value;
+            _suppress = false;
+            Show("开机自启设置失败", ex.Message, InfoBarSeverity.Error);
+        }
     }
 
     /// <summary>IPv6 开关：写进配置需要重启核心，所以给个提示。</summary>
