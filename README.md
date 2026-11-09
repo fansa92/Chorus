@@ -173,7 +173,7 @@ Chorus/
    > `SelfContained` 与 `WindowsAppSDKSelfContained` 是两个独立开关：前者控制 .NET 运行时是否打进包，后者控制 Windows App SDK 运行时是否打进包。只把前者设成 `false`，用户就只需要装 .NET 10 运行时，不必再单独装 Windows App Runtime。
 5. **发版**：推 tag 触发 Release 工作流：
    ```bash
-   git tag v0.1.8 && git push origin v0.1.8
+   git tag -a v0.2.0 -m "v0.2.0 连接管理页 + 日常体验包" && git push origin v0.2.0
    ```
 
 ## 用户使用说明
